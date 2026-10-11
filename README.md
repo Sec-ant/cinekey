@@ -98,14 +98,18 @@ On a saved local collection of 2,855 PT filenames, the primary result matches al
 
 ## Development
 
+[Just](https://just.systems/) provides a thin command layer over Cargo. Run `just` to list the available tasks:
+
 ```sh
-cargo fmt --check
-cargo test --all-targets
-cargo test --doc
-cargo clippy --all-targets -- -D warnings
-cargo bench --bench parse
+just check
+just build
+just bench
+just eval --help
+just clean
 ```
 
-The dependency-free release benchmark parses six representative names one million times, alternating plain parsing and ancestor context. The separate `tools/eval/benchmark` package exports results and measures corpus throughput with pinned Hunch and Oleoo versions. Saved local inputs and references stay in ignored development directories.
+`just fmt`, `just clippy`, `just test`, and `just doc` run individual checks; `just fmt-fix` formats sources. `just install` installs the local CLI. The commands share the root `target/` directory, and `just clean` reclaims its build artifacts. Cargo commands can also be run directly.
+
+The dependency-free release benchmark parses six representative names one million times, alternating plain parsing and ancestor context. The separate Rust package at `tools/eval` prepares public fixtures, scores identification results, exports parser output, and measures corpus throughput with pinned Hunch and Oleoo versions. Saved local inputs and references stay in ignored development directories.
 
 The Rust API follows [Microsoft's Pragmatic Rust Guidelines](https://microsoft.github.io/rust-guidelines/) through explicit safety policy, typed interfaces, documented examples, formatting, and static lint checks.

@@ -10,7 +10,11 @@ use std::{
 };
 
 use cinekey::{ExpectedKind, ParseContext};
+use clap::{Parser, Subcommand};
 use serde_json::Value;
+
+mod prepare;
+mod scoring;
 
 const LOCAL_BATCH_SIZE: usize = 128;
 const LOCAL_PASSES: usize = 20;
@@ -21,20 +25,43 @@ struct LocalCorpusRow {
     ancestors: Vec<String>,
 }
 
-const HELP: &str = "Evaluate saved media-name corpora.
+#[derive(Debug, Parser)]
+#[command(
+    about = "Prepare, score, and benchmark saved media-name corpora",
+    version
+)]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
 
-Usage:
-  cinekey-eval --local-results CORPUS.jsonl
-  cinekey-eval --benchmark-corpus CORPUS.jsonl
-  cinekey-eval --cinekey-corpus CORPUS.jsonl
-  cinekey-eval --local-corpus CORPUS.jsonl
-
-Modes:
-  --local-results     Export all parser results as JSONL
-  --benchmark-corpus Compare native throughput of all three parsers
-  --cinekey-corpus   Measure cinekey throughput in three rounds
-  --local-corpus     Replay basenames and ancestor context
-";
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// Export all parser results as JSONL.
+    Results { corpus: std::path::PathBuf },
+    /// Compare native throughput of all three parsers.
+    Benchmark { corpus: std::path::PathBuf },
+    /// Measure cinekey throughput in three rounds.
+    BenchmarkCinekey { corpus: std::path::PathBuf },
+    /// Replay basenames and ancestor context.
+    Replay { corpus: std::path::PathBuf },
+    /// Convert pinned public fixtures into shared JSONL expectations.
+    Prepare {
+        #[arg(value_enum)]
+        source: prepare::Source,
+        fixtures: std::path::PathBuf,
+        output: std::path::PathBuf,
+    },
+    /// Score primary results against shared identification expectations.
+    Score {
+        #[arg(value_enum)]
+        scope: scoring::Scope,
+        expectations: std::path::PathBuf,
+        results: std::path::PathBuf,
+        #[arg(long)]
+        output_dir: std::path::PathBuf,
+    },
+}
 
 fn main() {
     if let Err(error) = run() {
@@ -44,17 +71,22 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let args: Vec<_> = std::env::args().skip(1).collect();
-    match args.as_slice() {
-        [flag] if flag == "--help" || flag == "-h" => {
-            print!("{HELP}");
-            Ok(())
-        }
-        [flag, path] if flag == "--local-results" => export_local_results(Path::new(path)),
-        [flag, path] if flag == "--benchmark-corpus" => benchmark_corpus(Path::new(path)),
-        [flag, path] if flag == "--cinekey-corpus" => benchmark_cinekey_corpus(Path::new(path)),
-        [flag, path] if flag == "--local-corpus" => replay_local_corpus(Path::new(path)),
-        _ => Err(HELP.into()),
+    match Cli::parse().command {
+        Command::Results { corpus } => export_local_results(&corpus),
+        Command::Benchmark { corpus } => benchmark_corpus(&corpus),
+        Command::BenchmarkCinekey { corpus } => benchmark_cinekey_corpus(&corpus),
+        Command::Replay { corpus } => replay_local_corpus(&corpus),
+        Command::Prepare {
+            source,
+            fixtures,
+            output,
+        } => prepare::run(source, &fixtures, &output),
+        Command::Score {
+            scope,
+            expectations,
+            results,
+            output_dir,
+        } => scoring::run(scope, &expectations, &results, &output_dir),
     }
 }
 

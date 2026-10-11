@@ -93,34 +93,34 @@ The cinekey-only replay measures three rounds of 256 passes after a warm-up. Med
 The evaluation package operates on saved JSONL corpora. Each input row has a string `name`, an optional `expected_kind` (`movie`, `series`, or `null`), and an `ancestors` array ordered nearest first. Context replay uses a movie or series kind for every row. The local inputs and references are private; upstream fixture sources supply the public inputs. Hunch and Oleoo belong to this separate development package.
 
 ```sh
-cargo build --release --manifest-path tools/eval/benchmark/Cargo.toml
+just eval-build
 
 # Local accuracy and speed from saved filenames
-EVAL=tools/eval/benchmark/target/release/cinekey-eval
+EVAL=target/release/cinekey-eval
 REVIEW=tools/eval/local-review
 mkdir -p "$REVIEW"
-$EVAL --local-results tools/eval/local-corpus.jsonl > "$REVIEW/outputs.jsonl"
-python3 tools/eval/score_local.py "$REVIEW/expectations.jsonl" \
+$EVAL results tools/eval/local-corpus.jsonl > "$REVIEW/outputs.jsonl"
+$EVAL score local "$REVIEW/expectations.jsonl" \
   "$REVIEW/outputs.jsonl" --output-dir "$REVIEW"
-$EVAL --benchmark-corpus tools/eval/local-corpus.jsonl
-$EVAL --cinekey-corpus tools/eval/local-corpus.jsonl
-$EVAL --local-corpus tools/eval/local-corpus.jsonl
+$EVAL benchmark tools/eval/local-corpus.jsonl
+$EVAL benchmark-cinekey tools/eval/local-corpus.jsonl
+$EVAL replay tools/eval/local-corpus.jsonl
 
 # Public fixture preparation: these paths point to the pinned upstream fixture sources
-python3 tools/eval/prepare_public.py hunch "$HUNCH_FIXTURES" "$REVIEW/comparison/hunch.jsonl"
-python3 tools/eval/prepare_public.py oleoo "$OLEOO_FIXTURES/accepted.json" "$REVIEW/comparison/oleoo.jsonl"
+$EVAL prepare hunch "$HUNCH_FIXTURES" "$REVIEW/comparison/hunch.jsonl"
+$EVAL prepare oleoo "$OLEOO_FIXTURES/accepted.json" "$REVIEW/comparison/oleoo.jsonl"
 
 # Repeat for DATASET=hunch and DATASET=oleoo
 DATASET=hunch
-$EVAL --local-results "$REVIEW/comparison/$DATASET.jsonl" \
+$EVAL results "$REVIEW/comparison/$DATASET.jsonl" \
   > "$REVIEW/comparison/$DATASET-results.jsonl"
-python3 tools/eval/score_public.py "$REVIEW/comparison/$DATASET.jsonl" \
+$EVAL score public "$REVIEW/comparison/$DATASET.jsonl" \
   "$REVIEW/comparison/$DATASET-results.jsonl" \
   --output-dir "$REVIEW/comparison/$DATASET-score"
-$EVAL --benchmark-corpus "$REVIEW/comparison/$DATASET.jsonl"
+$EVAL benchmark "$REVIEW/comparison/$DATASET.jsonl"
 ```
 
-Local reference answers, result JSONL, per-file mismatches, timing JSON, input fingerprints, and independent score checks remain in `tools/eval/local-review/`. Public fixture data stays in this ignored directory. Temporary Rust build artifacts can be reclaimed with `cargo clean --manifest-path tools/eval/benchmark/Cargo.toml`.
+The evaluation package uses Rust for fixture preparation, Unicode-aware scoring, and measurement. Result scoring streams parser output and reports `summary.json` and `mismatches.jsonl`. Local reference answers, result JSONL, per-file mismatches, timing JSON, input fingerprints, and independent score checks remain in `tools/eval/local-review/`. Public fixture data stays in this ignored directory. `just clean` reclaims the shared Rust build directory.
 
 ## Interpretation
 

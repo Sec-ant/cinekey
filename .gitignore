@@ -1,8 +1,5 @@
 /target
 **/target/
-__pycache__/
-*.py[cod]
 
 tools/eval/local-corpus.jsonl
 tools/eval/local-review/
-tools/eval/local-labels.json

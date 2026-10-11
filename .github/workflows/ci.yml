@@ -30,10 +30,9 @@ jobs:
           rustup component add rustfmt clippy
           cargo fmt --all --check
           cargo clippy --locked --all-targets -- -D warnings
-          cargo fmt --manifest-path tools/eval/benchmark/Cargo.toml --all --check
-          cargo clippy --locked --manifest-path tools/eval/benchmark/Cargo.toml --all-targets -- -D warnings
+          cargo fmt --manifest-path tools/eval/Cargo.toml --all --check
+          cargo clippy --locked --manifest-path tools/eval/Cargo.toml --all-targets -- -D warnings
       - name: Check evaluation tools
         if: matrix.toolchain == 'stable'
         run: |
-          cargo test --locked --manifest-path tools/eval/benchmark/Cargo.toml
-          python3 -m unittest discover -s tools/eval -p 'test_*.py'
+          cargo test --locked --manifest-path tools/eval/Cargo.toml
