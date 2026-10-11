@@ -1,0 +1,11 @@
+[package]
+name = "cinekey-eval"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+
+[dependencies]
+cinekey = { path = "../../.." }
+hunch = "=2.0.2"
+oleoo = "=3.1.1"
+serde_json = "1"

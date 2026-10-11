@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        toolchain: ["1.88.0", stable]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust
+        run: |
+          rustup toolchain install "${{ matrix.toolchain }}" --profile minimal
+          rustup default "${{ matrix.toolchain }}"
+      - name: Check parser and CLI
+        run: |
+          cargo test --locked --lib --bins
+          cargo test --locked --doc
+          cargo check --locked --benches
+      - name: Check formatting and lints
+        if: matrix.toolchain == 'stable'
+        run: |
+          rustup component add rustfmt clippy
+          cargo fmt --all --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo fmt --manifest-path tools/eval/benchmark/Cargo.toml --all --check
+          cargo clippy --locked --manifest-path tools/eval/benchmark/Cargo.toml --all-targets -- -D warnings
+      - name: Check evaluation tools
+        if: matrix.toolchain == 'stable'
+        run: |
+          cargo test --locked --manifest-path tools/eval/benchmark/Cargo.toml
+          python3 -m unittest discover -s tools/eval -p 'test_*.py'
