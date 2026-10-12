@@ -548,28 +548,71 @@ pub(super) fn release_group<'a>(
     name: &'a str,
     tokens: &[Token<'_>],
     stem_end: usize,
+    episode_end: Option<usize>,
 ) -> Option<&'a str> {
     let stem = name.get(..stem_end)?;
     let dash = stem.rfind('-')?;
     let suffix = stem[dash + 1..].trim();
-    if suffix.is_empty() || suffix.len() > 32 || suffix.contains([' ', '.', '_']) {
-        return None;
+    let last_index = tokens.len().checked_sub(1)?;
+    let last = &tokens[last_index];
+    let fallback =
+        (last.text == suffix && valid_group(suffix) && !is_web_dl_suffix(tokens, last_index))
+            .then_some(suffix);
+    if fallback.is_some() {
+        return fallback;
     }
-    if !suffix.chars().any(char::is_alphanumeric) {
-        return None;
+
+    for (index, token) in tokens.iter().enumerate().skip(1).rev() {
+        if token.before != Separator::Dash
+            || stem.as_bytes().get(token.start.checked_sub(1)?) != Some(&b'-')
+            || is_web_dl_suffix(tokens, index)
+            || !group_anchor(tokens, index, episode_end)
+        {
+            continue;
+        }
+        let Some(dot_offset) = stem[token.start..].find('.') else {
+            continue;
+        };
+        let end = token.start + dot_offset;
+        if let Some(group) = stem.get(token.start..end)
+            && valid_group(group)
+            && group.len() > 1
+            && !is_technical(group)
+            && group.chars().any(char::is_alphabetic)
+            && !group.contains(['[', ']', '(', ')'])
+            && !tokens[index + 1..]
+                .iter()
+                .any(|later| is_technical(later.text))
+            && !tokens[index + 1..]
+                .iter()
+                .any(|later| later.text.bytes().all(|byte| byte.is_ascii_digit()))
+        {
+            return Some(group);
+        }
     }
-    // The final token represents the complete release-group suffix.
-    let final_token = tokens.last()?;
-    if final_token.text != suffix {
-        return None;
-    }
-    // WEB-DL forms one source marker across its hyphen.
-    let suffix_index = tokens.len().checked_sub(1)?;
-    if suffix.eq_ignore_ascii_case("DL")
-        && suffix_index > 0
-        && tokens[suffix_index - 1].text.eq_ignore_ascii_case("WEB")
-    {
-        return None;
-    }
-    Some(suffix)
+    fallback
+}
+
+fn valid_group(text: &str) -> bool {
+    !text.is_empty()
+        && text.len() <= 32
+        && !text.contains([' ', '.', '_'])
+        && text.chars().any(char::is_alphanumeric)
+}
+
+fn is_web_dl_suffix(tokens: &[Token<'_>], index: usize) -> bool {
+    tokens[index].text.eq_ignore_ascii_case("DL")
+        && index > 0
+        && tokens[index - 1].text.eq_ignore_ascii_case("WEB")
+}
+
+fn group_anchor(tokens: &[Token<'_>], index: usize, episode_end: Option<usize>) -> bool {
+    let Some(previous_index) = index.checked_sub(1) else {
+        return false;
+    };
+    let previous = &tokens[previous_index];
+    is_technical(previous.text)
+        || is_release_year(previous.text)
+        || episode_end == Some(previous_index)
+        || is_web_dl_suffix(tokens, previous_index)
 }

@@ -102,6 +102,7 @@ Optional scalar fields use `Option`; repeated metadata values use vectors. Empty
 - Episode grammar handles compact and spaced season/episode markers, explicit `E`/`EP` sequences, inclusive ranges, lists, revisions, season packs, and anchored anime absolute numbers. Season words support numeric and canonical Roman values.
 - Title boundaries use structural, year, and technical anchors. Titles retain accents, installment numbers, inline parenthetical text, and complete movie subtitles. Trailing parenthesized qualifiers populate `title_annotations`.
 - Technical recognizers normalize source and codec aliases, compound release phrases, split codec spellings, HDR markers, and audio layouts. Bonus-content recognizers identify common supplement categories and ordinals.
+- Release-group recognition uses the dash anchor and structural release markers. A group ends at the next dot, so other filename segments can follow it across file extensions.
 - Path context supplies missing titles and seasons from structurally recognizable ancestors on the input's own path. Explicit filename structure participates in selection alongside the supplied hints.
 - The library and CLI forbid `unsafe`. Parsing uses borrowed tokens, bounded stack keys, static dispatch, and one returned metadata record. The CLI streams input lists and output records; memory follows the argument list, current input, ancestor names, and current parse result.
 

@@ -15,6 +15,41 @@ fn every_input_returns_one_metadata_record() {
     }
 }
 
+#[test]
+fn release_groups_follow_release_anchors_across_file_names() {
+    for input in [
+        "Movie.2024.1080p.x264-GROUP.mkv",
+        "Movie.2024.1080p.x264-GROUP.chs.ass",
+        "Movie.2024.1080p.x264-GROUP.chs&eng.srt",
+        "Movie.2024.1080p.x264-GROUP.eng.forced.srt",
+        "Movie.2024.1080p.x264-GROUP.chs.mkv",
+        "Show.S01E02-GROUP.chs.srt",
+    ] {
+        assert_eq!(
+            parse(input).release_group.as_deref(),
+            Some("GROUP"),
+            "{input}"
+        );
+    }
+    assert_eq!(
+        parse("Watchmen.S01E06.This.Extraordinary.Being.2160p.MAX.WEB-DL.DTS-HD.MA.5.1.HDR.DoVi.H.265-NTb.mkv")
+            .release_group
+            .as_deref(),
+        Some("NTb")
+    );
+    for input in [
+        "chs.ass",
+        "chs&eng.srt",
+        "Mission - Impossible - The Final Reckoning (2025).mkv",
+        "Movie - Impossible.chs.srt",
+        "Movie.2024.WEB-DL.chs.srt",
+        "Movie.2024.DTS-HD.MA.5.1.mkv",
+        "-GROUP.chs.srt",
+    ] {
+        assert_eq!(parse(input).release_group, None, "{input}");
+    }
+}
+
 fn first(input: &str) -> ParsedMedia {
     parse(input)
 }

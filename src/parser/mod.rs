@@ -133,7 +133,12 @@ fn parse_internal(
         season_hint,
         extra_boundary,
     );
-    let group = release_group(name, &tokens, extension_offset);
+    let group = release_group(
+        name,
+        &tokens,
+        extension_offset,
+        markers.last().map(|marker| marker.last_token_index),
+    );
     let mut episode_marker = None;
     let mut pack_marker = None;
     for marker in markers {
