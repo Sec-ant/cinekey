@@ -24,6 +24,7 @@ jobs:
           cargo test --locked --lib --bins
           cargo test --locked --doc
           cargo check --locked --benches
+          cargo check --locked --no-default-features --lib
       - name: Check formatting and lints
         if: matrix.toolchain == 'stable'
         run: |

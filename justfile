@@ -23,6 +23,7 @@ test:
     cargo test --locked --lib --bins
     cargo test --locked --doc
     cargo check --locked --benches
+    cargo check --locked --no-default-features --lib
     cargo test --locked --manifest-path {{eval_manifest}}
 
 # Build library documentation.

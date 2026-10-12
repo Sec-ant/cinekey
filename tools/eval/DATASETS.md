@@ -38,7 +38,7 @@ The local snapshot contains 2,855 basenames and their saved ancestor names: 2,57
 | Movies | 276 | 274 (99.28%) | 274 (99.28%) | 262 (94.93%) | 266 (96.38%) |
 | Total | 2,855 | 2,768 (96.95%) | 2,847 (99.72%) | 2,329 (81.58%) | 2,253 (78.91%) |
 
-Directory context supplies the saved ancestor names and movie/series input classification. Cinekey reaches 2,847/2,855 complete records (99.72%) with this input and measures approximately 709,947 calls/s in a separate 20-pass context replay. Hunch and Oleoo receive basename strings in the local comparison.
+Directory context supplies the saved ancestor names and movie/series input classification. Cinekey 0.2.1 reaches 2,847/2,855 complete records (99.72%) with this input and measures approximately 713,841 calls/s as the median of three separate 20-pass context replays. Hunch and Oleoo receive basename strings in the local comparison.
 
 Cinekey’s contextual results match 2,312/2,312 episode records, 279/281 movie records, and 256/262 supplement records. Five movie records live in the series tree. The eight remaining mismatches consist of six supplements and two movie titles. Four supplement errors concern descriptive bonus titles; two concern sample-video classification. The movie errors concern two uploader-prefixed translated titles. Basename parsing has 26 episode titles that require ancestor context.
 
@@ -88,7 +88,7 @@ Cinekey has 487 complete-record mismatches on this set; 480 involve the title fi
 
 Each throughput measurement loads the input strings before timing, initializes and reuses Hunch’s `Pipeline` and Oleoo’s options, warms all three parsers with one full pass, and measures 20 passes in batches of 128. Parser order rotates between batches. Parser calls are sequential. File reading, directory traversal, parser initialization, output serialization, and result export are outside the timed region. Result allocations and destruction are included. Oleoo uses `current_year: Some(2026)`. The rates are single-run measurements and vary with machine load and compiler settings.
 
-The cinekey-only replay measures three rounds of 256 passes after a warm-up. Median throughputs are 960,751 calls/s on local basenames, 1,175,077 calls/s on Hunch syntax inputs, and 1,011,047 calls/s on Oleoo inputs. Native result construction and destruction are included. Peak resident memory is 4.14–4.78 MiB across these preloaded-basename runs and 5.33 MiB for the ancestor-context replay, measured with macOS `time -l`; this includes saved input strings and process overhead.
+The cinekey-only replay measures three rounds of 256 passes after a warm-up. Two runs provide six timed rounds for each dataset. Cinekey 0.2.1 median throughputs are 950,190 calls/s on local basenames, 1,133,661 calls/s on Hunch syntax inputs, and 1,013,207 calls/s on Oleoo inputs. Native result construction and destruction are included. Peak resident memory is 4.02–4.69 MiB across these preloaded-basename runs and at most 5.17 MiB for the ancestor-context replays, measured with macOS `time -l`; this includes saved input strings and process overhead.
 
 The evaluation package operates on saved JSONL corpora. Each input row has a string `name`, an optional `expected_kind` (`movie`, `series`, or `null`), and an `ancestors` array ordered nearest first. Context replay uses a movie or series kind for every row. The local inputs and references are private; upstream fixture sources supply the public inputs. Hunch and Oleoo belong to this separate development package.
 

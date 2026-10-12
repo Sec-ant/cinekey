@@ -17,10 +17,11 @@
 //! ```
 
 mod lexer;
+mod model;
 mod parser;
 
 pub use lexer::{Separator, Token, tokenize};
-pub use parser::{
+pub use model::{
     EpisodeNumbering, ExpectedKind, ExtraCategory, ExtraInfo, MediaKind, ParseContext, ParsedMedia,
-    parse, parse_with_context,
 };
+pub use parser::{parse, parse_with_context};

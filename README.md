@@ -20,7 +20,7 @@ For a library dependency:
 
 ```toml
 [dependencies]
-cinekey = { git = "https://github.com/Sec-ant/cinekey" }
+cinekey = { git = "https://github.com/Sec-ant/cinekey", default-features = false }
 ```
 
 ## CLI
@@ -104,6 +104,8 @@ Optional scalar fields use `Option`; repeated metadata values use vectors. Empty
 - Technical recognizers normalize source and codec aliases, compound release phrases, split codec spellings, HDR markers, and audio layouts. Bonus-content recognizers identify common supplement categories and ordinals.
 - Path context supplies missing titles and seasons from structurally recognizable ancestors on the input's own path. Explicit filename structure participates in selection alongside the supplied hints.
 - The library and CLI forbid `unsafe`. Parsing uses borrowed tokens, bounded stack keys, static dispatch, and one returned metadata record. The CLI streams input lists and output records; memory follows the argument list, current input, ancestor names, and current parse result.
+
+The `cli` feature supplies the binary, argument parsing, and JSON output. Library consumers can use `default-features = false` for the parser and its Serde data model. Modules separate the public model, lexer, structural selection, episode grammar, and technical vocabulary. Release builds use Thin LTO, one code-generation unit, and symbol stripping with optimization level 3.
 
 The grammar targets naming conventions shared across releases. Bare compact digits have several plausible meanings; explicit markers and surrounding structure supply episode numbering. Broad title-boundary and multi-season conventions in other collections remain areas for greater compatibility.
 
