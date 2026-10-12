@@ -1,12 +1,12 @@
 #![forbid(unsafe_code)]
 
-use cinekey::{ExpectedKind, ParseContext, ParseReport, parse_with_context};
-use clap::{Parser, Subcommand, ValueEnum};
+use cinekey::{ExpectedKind, MediaKind, ParseContext, ParsedMedia, parse_with_context};
+use clap::{Parser, ValueEnum};
 use serde::Serialize;
 use std::{
-    fs::{self, ReadDir},
-    io::{self, IsTerminal, Write},
-    path::{Path, PathBuf},
+    fs::File,
+    io::{self, BufRead, Write},
+    path::PathBuf,
     process::ExitCode,
 };
 
@@ -14,42 +14,24 @@ use std::{
 #[command(
     name = "cinekey",
     version,
-    about = "Parse movie and TV release names into ranked, explainable candidates",
+    about = "Parse movie and TV names into identification and technical metadata",
     arg_required_else_help = true,
-    subcommand_required = true,
-    after_help = "Examples:\n  cinekey parse 'Slow.Horses.S04E01.Identity.Theft.2160p.WEB-DL.DDP5.1.H.265-GROUP.mkv'\n  cinekey parse --json 'Fear.Street.Part.3.1666.2021.1080p.WEB-DL.mkv'\n  cinekey scan ./media/series --jsonl"
+    group = clap::ArgGroup::new("input_source").args(["inputs", "from_file"]).required(true).multiple(true),
+    after_help = "Examples:\n  cinekey 'Arrival.2016.1080p.BluRay.mkv' 'Example.S01E02.mkv'\n  cinekey --json ./media/*.mkv\n  cinekey --from-file names.txt --json\n  cinekey --from-file - --json | jq -r '.title'"
 )]
 struct Cli {
-    #[command(subcommand)]
-    command: Command,
-}
-
-#[derive(Debug, Subcommand)]
-enum Command {
-    /// Parse a filename, release name, or path string.
-    Parse {
-        input: String,
-        /// Emit the report as JSON.
-        #[arg(long)]
-        json: bool,
-        /// Supply a movie or series hint.
-        #[arg(long, value_enum)]
-        kind: Option<KindArg>,
-    },
-    /// Scan media files incrementally; results stream to stdout.
-    Scan {
-        #[arg(required=true, num_args=1..)]
-        paths: Vec<PathBuf>,
-        /// Visit only the supplied directory's immediate files.
-        #[arg(long)]
-        no_recursive: bool,
-        /// Emit one JSON object per media file.
-        #[arg(long, conflicts_with = "pretty")]
-        jsonl: bool,
-        /// Emit expanded JSON records.
-        #[arg(long)]
-        pretty: bool,
-    },
+    /// Filenames, release names, or path strings to parse, in order.
+    #[arg(value_name = "INPUT", num_args = 1..)]
+    inputs: Vec<String>,
+    /// Read one input per line from a file; use "-" for stdin.
+    #[arg(long, value_name = "PATH")]
+    from_file: Option<PathBuf>,
+    /// Emit one JSON object per input.
+    #[arg(long)]
+    json: bool,
+    /// Supply a movie or series hint for every input.
+    #[arg(long, value_enum)]
+    kind: Option<KindArg>,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -57,275 +39,188 @@ enum KindArg {
     Movie,
     Series,
 }
+
 impl From<KindArg> for ExpectedKind {
-    fn from(v: KindArg) -> Self {
-        match v {
+    fn from(value: KindArg) -> Self {
+        match value {
             KindArg::Movie => Self::Movie,
             KindArg::Series => Self::Series,
         }
     }
 }
 
+#[derive(Debug, Serialize)]
+struct OutputRecord<'a> {
+    input: &'a str,
+    #[serde(flatten)]
+    media: &'a ParsedMedia,
+}
+
 pub fn run() -> ExitCode {
     match run_inner(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
-        // A downstream command such as `head` may close a pipeline early.
         // A closed output pipe completes the command successfully.
         Err(error) if error.kind() == io::ErrorKind::BrokenPipe => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("cinekey: {e}");
-            ExitCode::from(1)
+        Err(error) => {
+            eprintln!("cinekey: {error}");
+            ExitCode::FAILURE
         }
     }
 }
 
 fn run_inner(cli: Cli) -> io::Result<()> {
-    match cli.command {
-        Command::Parse { input, json, kind } => {
-            let mut context = context_for_path(Path::new(&input));
-            if let Some(kind) = kind {
-                context.expected_kind = Some(kind.into());
-            }
-            let report = parse_with_context(&input, &context);
-            let stdout = io::stdout();
-            let mut out = stdout.lock();
-            if json {
-                serde_json::to_writer_pretty(&mut out, &report)?;
-                out.write_all(b"\n")
-            } else {
-                write_human(&mut out, &report)
-            }
-        }
-        Command::Scan {
-            paths,
-            no_recursive,
-            jsonl,
-            pretty,
-        } => {
-            let show_progress = io::stderr().is_terminal();
-            if show_progress {
-                eprintln!("Scanning {} input path(s)…", paths.len());
-            }
-            let stdout = io::stdout();
-            let mut out = stdout.lock();
-            let mut processed = 0usize;
-            for path in &paths {
-                walk(
-                    path,
-                    !no_recursive,
-                    &mut out,
-                    jsonl,
-                    pretty,
-                    &mut processed,
-                    show_progress,
-                )?;
-            }
-            if show_progress {
-                eprintln!("Scanned {processed} video files.");
-            }
-            Ok(())
+    let stdout = io::stdout();
+    let mut out = io::BufWriter::new(stdout.lock());
+    let mut first = true;
+    let hint = cli.kind.map(ExpectedKind::from);
+    for input in cli.inputs {
+        write_input(&mut out, &input, hint, cli.json, &mut first)?;
+    }
+    if let Some(path) = cli.from_file {
+        if path.as_os_str() == "-" {
+            write_lines(&mut out, io::stdin().lock(), hint, cli.json, &mut first)?;
+        } else {
+            write_lines(
+                &mut out,
+                io::BufReader::new(File::open(path)?),
+                hint,
+                cli.json,
+                &mut first,
+            )?;
         }
     }
+    out.flush()
 }
 
-#[derive(Serialize)]
-struct ScanRecord<'a> {
-    path: &'a Path,
-    report: &'a ParseReport,
-}
-
-/// Stream entries through a stack of open directory iterators.
-/// Memory follows directory depth, the current path, and one parse result.
-fn walk(
-    path: &Path,
-    recursive: bool,
+fn write_lines(
     out: &mut impl Write,
-    jsonl: bool,
-    pretty: bool,
-    processed: &mut usize,
-    show_progress: bool,
+    mut input: impl BufRead,
+    hint: Option<ExpectedKind>,
+    json: bool,
+    first: &mut bool,
 ) -> io::Result<()> {
-    let metadata = fs::symlink_metadata(path)?;
-    if metadata.file_type().is_symlink() {
-        return Ok(());
-    }
-    if metadata.is_file() {
-        return write_file(path, out, jsonl, pretty, processed, show_progress);
-    }
-    if !metadata.is_dir() {
-        return Ok(());
-    }
-    let mut stack: Vec<ReadDir> = vec![fs::read_dir(path)?];
-    while let Some(entries) = stack.last_mut() {
-        let Some(next) = entries.next() else {
-            stack.pop();
-            continue;
-        };
-        let entry = next?;
-        let ty = entry.file_type()?;
-        if ty.is_symlink() {
-            continue;
+    let mut line = String::new();
+    while input.read_line(&mut line)? > 0 {
+        let name = line.trim_end_matches(['\r', '\n']);
+        if !name.trim().is_empty() {
+            write_input(out, name, hint, json, first)?;
         }
-        let child = entry.path();
-        if ty.is_file() {
-            write_file(&child, out, jsonl, pretty, processed, show_progress)?;
-        } else if recursive && ty.is_dir() {
-            stack.push(fs::read_dir(child)?);
-        }
+        line.clear();
     }
     Ok(())
 }
 
-fn write_file(
-    path: &Path,
+fn write_input(
     out: &mut impl Write,
-    jsonl: bool,
-    pretty: bool,
-    processed: &mut usize,
-    show_progress: bool,
+    input: &str,
+    hint: Option<ExpectedKind>,
+    json: bool,
+    first: &mut bool,
 ) -> io::Result<()> {
-    if !is_video_file(path) {
-        return Ok(());
+    let mut context = context_for_path(input);
+    if hint.is_some() {
+        context.expected_kind = hint;
     }
-    let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
-        eprintln!("cinekey: skipping non-UTF-8 filename: {}", path.display());
-        return Ok(());
-    };
-    let context = context_for_path(path);
-    let report = parse_with_context(name, &context);
-    let record = ScanRecord {
-        path,
-        report: &report,
-    };
-    if jsonl {
-        serde_json::to_writer(&mut *out, &record)?;
+    let media = parse_with_context(input, &context);
+    if json {
+        serde_json::to_writer(
+            &mut *out,
+            &OutputRecord {
+                input,
+                media: &media,
+            },
+        )?;
         out.write_all(b"\n")?;
-    } else if pretty {
-        serde_json::to_writer_pretty(&mut *out, &record)?;
-        out.write_all(b"\n\n")?;
     } else {
-        writeln!(out, "{}", path.display())?;
-        write_human(out, &report)?;
-        out.write_all(b"\n")?;
+        if !*first {
+            out.write_all(b"\n")?;
+        }
+        writeln!(out, "input: {input}")?;
+        write_human(out, &media)?;
     }
-    *processed += 1;
-    if show_progress && (*processed).is_multiple_of(250) {
-        eprintln!("Scanned {processed} video files…");
-    }
+    *first = false;
     Ok(())
 }
 
-fn is_video_file(path: &Path) -> bool {
-    const VIDEO_EXTENSIONS: &[&str] = &[
-        "mkv", "mp4", "avi", "m4v", "mov", "ts", "webm", "wmv", "m2ts", "mpg", "mpeg", "ogv",
-        "flv", "rmvb", "rm",
-    ];
-    path.extension()
-        .and_then(|s| s.to_str())
-        .is_some_and(|ext| {
-            VIDEO_EXTENSIONS
-                .iter()
-                .any(|known| ext.eq_ignore_ascii_case(known))
-        })
-}
-
-fn context_for_path(path: &Path) -> ParseContext<'_> {
-    let expected_kind = path
-        .components()
-        .filter_map(|c| c.as_os_str().to_str())
-        .find_map(|part| {
-            if part.eq_ignore_ascii_case("movies") || part.eq_ignore_ascii_case("movie") {
-                Some(ExpectedKind::Movie)
-            } else if part.eq_ignore_ascii_case("series") || part.eq_ignore_ascii_case("tv") {
-                Some(ExpectedKind::Series)
-            } else {
-                None
-            }
-        });
-    let ancestors = path
-        .parent()
-        .into_iter()
-        .flat_map(Path::ancestors)
-        .filter_map(Path::file_name)
-        .filter_map(|n| n.to_str())
+fn context_for_path(input: &str) -> ParseContext<'_> {
+    let mut components = input.rsplit(['/', '\\']);
+    components.next();
+    let ancestors: Vec<_> = components
+        .filter(|component| !component.is_empty())
         .collect();
+    let expected_kind = ancestors.iter().rev().find_map(|part| {
+        if part.eq_ignore_ascii_case("movies") || part.eq_ignore_ascii_case("movie") {
+            Some(ExpectedKind::Movie)
+        } else if part.eq_ignore_ascii_case("series") || part.eq_ignore_ascii_case("tv") {
+            Some(ExpectedKind::Series)
+        } else {
+            None
+        }
+    });
     ParseContext {
         expected_kind,
         ancestors,
     }
 }
 
-fn write_human(out: &mut impl Write, report: &ParseReport) -> io::Result<()> {
-    for (index, c) in report.candidates.iter().enumerate() {
+fn write_human(out: &mut impl Write, media: &ParsedMedia) -> io::Result<()> {
+    let kind = match media.kind {
+        MediaKind::Movie => "movie",
+        MediaKind::Episode => "episode",
+        MediaKind::SeasonPack => "season_pack",
+        MediaKind::Extra => "extra",
+        MediaKind::Unknown => "unknown",
+    };
+    writeln!(out, "kind: {kind}")?;
+    if let Some(value) = &media.title {
+        writeln!(out, "title: {value}")?;
+    }
+    if !media.title_annotations.is_empty() {
         writeln!(
             out,
-            "{}. {:?} — {} ({:?} confidence, score {})",
-            index + 1,
-            c.kind,
-            c.title.as_deref().unwrap_or("<title unknown>"),
-            c.confidence,
-            c.score
+            "title_annotations: {}",
+            media.title_annotations.join(", ")
         )?;
-        for annotation in &c.title_annotations {
-            writeln!(out, "   title annotation: {annotation}")?;
+    }
+    if let Some(value) = media.year {
+        writeln!(out, "year: {value}")?;
+    }
+    if let Some(value) = media.season {
+        writeln!(out, "season: {value}")?;
+    }
+    if !media.episodes.is_empty() {
+        writeln!(out, "episodes: {:?}", media.episodes)?;
+    }
+    if !media.absolute_episodes.is_empty() {
+        writeln!(out, "absolute_episodes: {:?}", media.absolute_episodes)?;
+    }
+    if let Some(value) = &media.episode_title {
+        writeln!(out, "episode_title: {value}")?;
+    }
+    if let Some(extra) = &media.extra {
+        let category = serde_json::to_value(extra.category)?;
+        write!(out, "extra: {}", category.as_str().unwrap_or_default())?;
+        if let Some(value) = extra.number {
+            write!(out, " {value}")?;
         }
-        if let Some(v) = c.year {
-            writeln!(out, "   year: {v}")?;
+        out.write_all(b"\n")?;
+    }
+    for (field, value) in [
+        ("resolution", &media.resolution),
+        ("source", &media.source),
+        ("video_codec", &media.video_codec),
+        ("audio_channels", &media.audio_channels),
+        ("release_group", &media.release_group),
+    ] {
+        if let Some(value) = value {
+            writeln!(out, "{field}: {value}")?;
         }
-        if let Some(v) = c.season {
-            writeln!(out, "   season: {v}")?;
-        }
-        if let Some(numbering) = c.episode_numbering {
-            writeln!(out, "   episode numbering: {numbering:?}")?;
-        }
-        if !c.episodes.is_empty() {
-            writeln!(out, "   episodes: {:?}", c.episodes)?;
-        }
-        if !c.absolute_episodes.is_empty() {
-            writeln!(out, "   absolute episodes: {:?}", c.absolute_episodes)?;
-        }
-        if let Some(v) = &c.episode_title {
-            writeln!(out, "   episode title: {v}")?;
-        }
-        if let Some(extra) = &c.extra {
-            writeln!(
-                out,
-                "   extra: {:?}{}",
-                extra.category,
-                extra.number.map_or(String::new(), |n| format!(" #{n}"))
-            )?;
-        }
-        if let Some(v) = &c.resolution {
-            writeln!(out, "   resolution: {v}")?;
-        }
-        if let Some(v) = &c.source {
-            writeln!(out, "   source: {v}")?;
-        }
-        if let Some(v) = &c.video_codec {
-            writeln!(out, "   video codec: {v}")?;
-        }
-        if !c.dynamic_range.is_empty() {
-            writeln!(out, "   dynamic range: {}", c.dynamic_range.join(", "))?;
-        }
-        if !c.audio_codec.is_empty() {
-            writeln!(out, "   audio: {}", c.audio_codec.join(", "))?;
-        }
-        if let Some(v) = &c.audio_channels {
-            writeln!(out, "   channels: {v}")?;
-        }
-        if let Some(v) = &c.release_group {
-            writeln!(out, "   release group: {v}")?;
-        }
-        for e in &c.evidence {
-            writeln!(
-                out,
-                "   evidence: {:?} <- {} ({:?}: {:?}, {}..{})",
-                e.field, e.rule, e.source, e.text, e.span.start, e.span.end
-            )?;
-        }
-        for note in &c.diagnostics {
-            writeln!(out, "   note: {note}")?;
-        }
+    }
+    if !media.dynamic_range.is_empty() {
+        writeln!(out, "dynamic_range: {}", media.dynamic_range.join(", "))?;
+    }
+    if !media.audio_codec.is_empty() {
+        writeln!(out, "audio_codec: {}", media.audio_codec.join(", "))?;
     }
     Ok(())
 }
@@ -333,26 +228,92 @@ fn write_human(out: &mut impl Write, report: &ParseReport) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn path_context_supplies_kind_and_nearest_ancestor() {
-        let p = Path::new("/media/series/Show/Season 1/E01.mkv");
-        let c = context_for_path(p);
-        assert_eq!(c.expected_kind, Some(ExpectedKind::Series));
-        assert_eq!(c.ancestors.first().copied(), Some("Season 1"));
-    }
-    #[test]
-    fn scan_selects_video_extensions() {
-        assert!(is_video_file(Path::new("Episode.MKV")));
-        assert!(!is_video_file(Path::new("Episode.srt")));
+    fn arguments_accept_multiple_inputs_and_input_lists() {
+        let cli = Cli::try_parse_from(["cinekey", "First.2020.mkv", "Second.S01E02.mkv", "--json"])
+            .unwrap();
+        assert_eq!(cli.inputs, ["First.2020.mkv", "Second.S01E02.mkv"]);
+        assert!(cli.json);
+        let cli = Cli::try_parse_from(["cinekey", "--from-file", "-"]).unwrap();
+        assert!(cli.inputs.is_empty());
+        assert_eq!(cli.from_file, Some(PathBuf::from("-")));
     }
 
     #[test]
-    fn human_output_presents_title_annotations() {
-        let report = cinekey::parse("Example (Another Name).2020.1080p.mkv");
+    fn path_context_supplies_kind_and_nearest_ancestor() {
+        for input in [
+            "/media/series/Example.S01.1080p/Season 1/E02.mkv",
+            "C:\\media\\series\\Example.S01.1080p\\Season 1\\E02.mkv",
+        ] {
+            let context = context_for_path(input);
+            assert_eq!(context.expected_kind, Some(ExpectedKind::Series));
+            assert_eq!(context.ancestors.first().copied(), Some("Season 1"));
+            let media = parse_with_context(input, &context);
+            assert_eq!(media.title.as_deref(), Some("Example"));
+            assert_eq!(media.season, Some(1));
+            assert_eq!(media.episodes, [2]);
+        }
+    }
+
+    #[test]
+    fn human_output_presents_metadata_fields() {
+        let media = cinekey::parse("Example (Another Name).2020.1080p.mkv");
         let mut output = Vec::new();
-        write_human(&mut output, &report).unwrap();
+        write_human(&mut output, &media).unwrap();
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "kind: movie\ntitle: Example\ntitle_annotations: Another Name\nyear: 2020\nresolution: 1080p\n"
+        );
+    }
+
+    #[test]
+    fn json_lines_preserve_inputs_order_and_duplicate_records() {
+        let input = b"First.2020.mkv\r\n\nSecond.2021.mkv\nFirst.2020.mkv\n";
+        let mut output = Vec::new();
+        write_lines(&mut output, input.as_slice(), None, true, &mut true).unwrap();
+        let text = String::from_utf8(output).unwrap();
+        let rows = text
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0]["input"], "First.2020.mkv");
+        assert_eq!(rows[0]["title"], "First");
+        assert_eq!(rows[1]["year"], 2021);
+        assert_eq!(rows[2], rows[0]);
+    }
+
+    #[test]
+    fn batch_human_output_separates_records_and_keeps_title_prefixes() {
+        let mut output = Vec::new();
+        write_lines(
+            &mut output,
+            b"#Alive.2020.mkv\nArrival.2016.mkv\n".as_slice(),
+            None,
+            false,
+            &mut true,
+        )
+        .unwrap();
         let output = String::from_utf8(output).unwrap();
-        assert!(output.contains("Movie — Example"));
-        assert!(output.contains("title annotation: Another Name"));
+        assert!(output.starts_with("input: #Alive.2020.mkv\nkind: movie\ntitle: #Alive\n"));
+        assert!(output.contains("\n\ninput: Arrival.2016.mkv\n"));
+    }
+
+    #[test]
+    fn supplied_kind_applies_to_each_input() {
+        let mut output = Vec::new();
+        write_lines(
+            &mut output,
+            b"Example.1080p.mkv\nOther.1080p.mkv\n".as_slice(),
+            Some(ExpectedKind::Series),
+            true,
+            &mut true,
+        )
+        .unwrap();
+        for line in String::from_utf8(output).unwrap().lines() {
+            let row: serde_json::Value = serde_json::from_str(line).unwrap();
+            assert_eq!(row["kind"], "unknown");
+        }
     }
 }

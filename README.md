@@ -1,6 +1,6 @@
 # cinekey
 
-A Rust library and CLI for parsing movie and television release names, with a focus on Scene/P2P releases from PT trackers. It returns ranked interpretations with identification fields, technical metadata, and evidence for each field.
+A Rust library and CLI for parsing movie and television release names, with a focus on Scene/P2P releases from PT trackers. Each input produces one record of identification fields and technical metadata.
 
 Rust 1.88 or newer is required. Licensed under MIT.
 
@@ -8,6 +8,12 @@ Rust 1.88 or newer is required. Licensed under MIT.
 
 ```sh
 cargo install --git https://github.com/Sec-ant/cinekey --locked cinekey
+```
+
+From a local checkout:
+
+```sh
+just install
 ```
 
 For a library dependency:
@@ -19,50 +25,65 @@ cinekey = { git = "https://github.com/Sec-ant/cinekey" }
 
 ## CLI
 
-`parse` accepts a filename, release name, or path-like **string**. It parses the final filename component and preserves the original input in the report. Path strings also supply local ancestor hints.
+Pass one or more filenames, release names, or path strings directly. Inputs are processed in order, and path components supply local movie/series, title, and season hints. Shell globs and file discovery tools provide file lists.
 
 ```sh
-cinekey parse 'Slow.Horses.S04E01.Identity.Theft.2160p.WEB-DL.DDP5.1.H.265-GROUP.mkv'
-cinekey parse --json 'Fear.Street.Part.3.1666.2021.1080p.WEB-DL.mkv'
-cinekey parse --kind series --json 'Episode.03.mkv'
+cinekey 'Arrival.2016.1080p.BluRay.mkv' 'Example.S01E02.1080p.WEB-DL.mkv'
+cinekey ./media/*.mkv
+cinekey --kind series 'Episode.03.mkv'
 ```
 
-`scan` accepts file or directory **paths**, traverses directories, and supplies each filename with local ancestor context. Directories named `movies`/`movie` or `series`/`tv` provide the corresponding kind hint.
+The default output presents parsed fields over multiple lines. A blank line separates records:
+
+```text
+input: Arrival.2016.1080p.BluRay.mkv
+kind: movie
+title: Arrival
+year: 2016
+resolution: 1080p
+source: Blu-ray
+```
+
+`--json` emits one compact JSON object per input, with the original `input` and parsed fields at the top level. Both single-input and batch output compose directly with `jq`:
 
 ```sh
-cinekey scan ./media/series ./media/movies --jsonl > scan.jsonl
-cinekey scan ./media/movies --no-recursive --pretty
+cinekey --json 'Arrival.2016.1080p.BluRay.mkv' | jq '.title, .year'
+cinekey --json ./media/*.mkv | jq -r '[.input, .title, .year] | @tsv'
 ```
 
-`--jsonl` emits one JSON object per video file. `--pretty` emits expanded JSON. The default output is human-readable. `cinekey --help` and each command's `--help` describe the options.
+`--from-file` reads one input per line from a list file; `-` reads stdin. Blank lines are skipped, and repeated names retain their input order. Positional inputs are processed first, followed by the list. List input streams through a reusable line buffer and one result.
 
-Results go to stdout, errors go to stderr, and failures return a nonzero exit status. Interactive scans report progress to stderr. Closed output pipes complete successfully. The CLI follows the composable command and stream conventions in [clig.dev](https://clig.dev/).
+```sh
+cinekey --from-file names.txt --json
+find ./media -type f -name '*.mkv' -print | cinekey --from-file - --json | jq -r '.title'
+find ./media -type f -name '*.mkv' -exec cinekey --json {} +
+```
+
+`--kind movie` or `--kind series` supplies a hint for every input. Results go to stdout, errors go to stderr, and failures return a nonzero exit status. Closed output pipes complete successfully. The CLI follows the composable command and stream conventions in [clig.dev](https://clig.dev/).
 
 ## Library API
 
 ```rust
 use cinekey::{ExpectedKind, MediaKind, ParseContext, parse, parse_with_context};
 
-let report = parse("Arrival.2016.1080p.BluRay.mkv");
-let candidate = &report.candidates[0];
-assert_eq!(candidate.kind, MediaKind::Movie);
-assert_eq!(candidate.title.as_deref(), Some("Arrival"));
-assert_eq!(candidate.year, Some(2016));
+let media = parse("Arrival.2016.1080p.BluRay.mkv");
+assert_eq!(media.kind, MediaKind::Movie);
+assert_eq!(media.title.as_deref(), Some("Arrival"));
+assert_eq!(media.year, Some(2016));
 
 let context = ParseContext {
     expected_kind: Some(ExpectedKind::Series),
     ancestors: vec!["Season 1", "Example.Show.S01.1080p"],
 };
-let report = parse_with_context("E02.mkv", &context);
-let candidate = &report.candidates[0];
-assert_eq!(candidate.title.as_deref(), Some("Example Show"));
-assert_eq!(candidate.season, Some(1));
-assert_eq!(candidate.episodes, [2]);
+let media = parse_with_context("E02.mkv", &context);
+assert_eq!(media.title.as_deref(), Some("Example Show"));
+assert_eq!(media.season, Some(1));
+assert_eq!(media.episodes, [2]);
 ```
 
-### Output
+`parse` accepts `&str` and parses its final filename component. `parse_with_context` also accepts kind and ancestor hints supplied by the caller. Both return `ParsedMedia` directly.
 
-`ParseReport` contains the original `input` and a `candidates` array ordered by descending score. Each candidate is a complete interpretation:
+### Output
 
 | Fields | Meaning |
 | --- | --- |
@@ -72,29 +93,25 @@ assert_eq!(candidate.episodes, [2]);
 | `title_annotations` | Trailing parenthesized names and qualifiers, in input order |
 | `resolution`, `source`, `video_codec`, `dynamic_range` | Normalized video and release metadata |
 | `audio_codec`, `audio_channels`, `release_group` | Audio metadata and release group |
-| `score`, `confidence` | Heuristic ranking and evidence-strength tier |
-| `evidence`, `diagnostics` | Recognizer, source text, byte span, and interpretation notes |
 
-Optional scalar fields use `Option`; repeated values use vectors. Empty annotation lists are omitted from JSON and deserialize as empty lists. Scores order hypotheses, and confidence tiers summarize heuristic evidence strength. Accuracy measurements use the first candidate.
-
-Filename evidence uses half-open UTF-8 byte ranges into the final filename component, with recognized media or subtitle extensions stripped for parsing. Directory evidence uses offsets into the contributing ancestor name. `EvidenceSource` identifies the source. `input` retains the caller's complete original string.
+Optional scalar fields use `Option`; repeated metadata values use vectors. Empty annotation lists are omitted from JSON and deserialize as empty lists. `source` describes release media such as Blu-ray or WEB-DL. Structural and release anchors select the best interpretation, including the release year when a title contains another year.
 
 ## Parsing and resource use
 
 - A Unicode-aware lexer borrows token slices and records separators, bracket state, and byte offsets. Structural recognizers combine these tokens with a static technical vocabulary.
 - Episode grammar handles compact and spaced season/episode markers, explicit `E`/`EP` sequences, inclusive ranges, lists, revisions, season packs, and anchored anime absolute numbers. Season words support numeric and canonical Roman values.
-- Title boundaries use structural, year, and technical anchors. Titles retain accents, installment numbers, inline parenthetical text, and complete movie subtitles. Trailing parenthesized qualifiers have their own annotation fields and evidence.
+- Title boundaries use structural, year, and technical anchors. Titles retain accents, installment numbers, inline parenthetical text, and complete movie subtitles. Trailing parenthesized qualifiers populate `title_annotations`.
 - Technical recognizers normalize source and codec aliases, compound release phrases, split codec spellings, HDR markers, and audio layouts. Bonus-content recognizers identify common supplement categories and ordinals.
-- Path context supplies missing titles and seasons from structurally recognizable ancestors on the input's own path. Explicit filename structure participates in ranking alongside the supplied hints. Ambiguous structures can produce multiple candidates.
-- The library and CLI forbid `unsafe`. Production parsing uses borrowed tokens, bounded stack keys, and static dispatch. The scanner streams records through an iterative directory traversal; memory follows directory depth, the current path, and one parse result. It skips symlinks and reads filesystem metadata and names.
+- Path context supplies missing titles and seasons from structurally recognizable ancestors on the input's own path. Explicit filename structure participates in selection alongside the supplied hints.
+- The library and CLI forbid `unsafe`. Parsing uses borrowed tokens, bounded stack keys, static dispatch, and one returned metadata record. The CLI streams input lists and output records; memory follows the argument list, current input, ancestor names, and current parse result.
 
 The grammar targets naming conventions shared across releases. Bare compact digits have several plausible meanings; explicit markers and surrounding structure supply episode numbering. Broad title-boundary and multi-season conventions in other collections remain areas for greater compatibility.
 
 ## Accuracy and performance
 
-On a saved local collection of 2,855 PT filenames, the primary result matches all five identification fields for **96.95%** of basenames and **99.72%** with directory context. The contextual result matches all 2,312 episode records. Basename throughput is approximately **665,000 calls/s**, compared with 10,100 for Hunch and 2,520 for Oleoo on the same strings and machine.
+On a saved local collection of 2,855 PT filenames, the parsed result matches all five identification fields for **96.95%** of basenames and **99.72%** with directory context. The contextual result matches all 2,312 episode records.
 
-[Dataset definitions, full accuracy tables, throughput, memory measurements, and reproduction commands](tools/eval/DATASETS.md) cover the local collection and both public fixture sets. Public results differ by naming grammar and reference title conventions. These measurements describe the listed inputs and host.
+[Dataset definitions, full accuracy tables, throughput, memory measurements, and reproduction commands](tools/eval/DATASETS.md) cover the local collection and both public fixture sets. Public results differ by naming grammar and reference title conventions. The measurements describe the listed inputs and host.
 
 ## Development
 
@@ -103,12 +120,13 @@ On a saved local collection of 2,855 PT filenames, the primary result matches al
 ```sh
 just check
 just build
+just install
 just bench
 just eval --help
 just clean
 ```
 
-`just fmt`, `just clippy`, `just test`, and `just doc` run individual checks; `just fmt-fix` formats sources. `just install` installs the local CLI. The commands share the root `target/` directory, and `just clean` reclaims its build artifacts. Cargo commands can also be run directly.
+`just fmt`, `just clippy`, `just test`, and `just doc` run individual checks; `just fmt-fix` formats sources. The commands share the root `target/` directory, and `just clean` reclaims its build artifacts. Cargo commands can also be run directly.
 
 The dependency-free release benchmark parses six representative names one million times, alternating plain parsing and ancestor context. The separate Rust package at `tools/eval` prepares public fixtures, scores identification results, exports parser output, and measures corpus throughput with pinned Hunch and Oleoo versions. Saved local inputs and references stay in ignored development directories.
 

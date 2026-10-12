@@ -2,9 +2,9 @@
 
 ## Summary
 
-Measured on 2026-10-11 on an Apple M3 Pro, `aarch64-apple-darwin`, with Rust 1.98.1 and Cargo release builds. The target corpus is the saved local Scene/P2P media collection from PT trackers. Public fixtures measure compatibility with broader naming conventions and their reference output policies.
+Measured on 2026-10-12 on an Apple M3 Pro, `aarch64-apple-darwin`, with Rust 1.98.1 and Cargo release builds. The target corpus is the saved local Scene/P2P media collection from PT trackers. Public fixtures measure compatibility with broader naming conventions and their reference output policies.
 
-Accuracy means the primary result matches every scored identification field: title, year, season, complete episode list, and media kind. Each local and Oleoo record scores all five fields, including explicit empty values. Hunch records score the shared fields supplied by their fixtures. The top-ranked cinekey candidate supplies its result. Strings compare case-insensitively with Unicode NFC and normalized whitespace. Latin title accents are equivalent across all parsers; punctuation retains its meaning. Lists compare complete values with order ignored.
+Accuracy means the parsed result matches every scored identification field: title, year, season, complete episode list, and media kind. Each local and Oleoo record scores all five fields, including explicit empty values. Hunch records score the shared fields supplied by their fixtures. Strings compare case-insensitively with Unicode NFC and normalized whitespace. Latin title accents are equivalent across all parsers; punctuation retains its meaning. Lists compare complete values with order ignored.
 
 ## Three-parser comparison
 
@@ -12,19 +12,19 @@ All parsers receive identical input strings. Local inputs are saved basenames; p
 
 | Dataset | Parser | Correct records | Accuracy | Calls/s | μs/call |
 | --- | --- | ---: | ---: | ---: | ---: |
-| Local PT basenames | cinekey 0.1.0 | 2,768/2,855 | 96.95% | 665,295 | 1.50 |
-| Local PT basenames | Hunch 2.0.2 | 2,329/2,855 | 81.58% | 10,104 | 98.97 |
-| Local PT basenames | Oleoo 3.1.1 | 2,253/2,855 | 78.91% | 2,521 | 396.63 |
-| Hunch public syntax | cinekey 0.1.0 | 611/909 | 67.22% | 946,627 | 1.06 |
-| Hunch public syntax | Hunch 2.0.2 | 787/909 | 86.58% | 14,597 | 68.51 |
-| Hunch public syntax | Oleoo 3.1.1 | 465/909 | 51.16% | 2,943 | 339.81 |
-| Oleoo accepted releases | cinekey 0.1.0 | 6,185/6,672 | 92.70% | 849,884 | 1.18 |
-| Oleoo accepted releases | Hunch 2.0.2 | 6,120/6,672 | 91.73% | 13,130 | 76.16 |
-| Oleoo accepted releases | Oleoo 3.1.1 | 6,672/6,672 | 100.00% | 3,334 | 299.98 |
+| Local PT basenames | cinekey 0.2.0 | 2,768/2,855 | 96.95% | 1,018,633 | 0.98 |
+| Local PT basenames | Hunch 2.0.2 | 2,329/2,855 | 81.58% | 11,261 | 88.81 |
+| Local PT basenames | Oleoo 3.1.1 | 2,253/2,855 | 78.91% | 2,845 | 351.55 |
+| Hunch public syntax | cinekey 0.2.0 | 611/909 | 67.22% | 1,305,216 | 0.77 |
+| Hunch public syntax | Hunch 2.0.2 | 787/909 | 86.58% | 15,231 | 65.65 |
+| Hunch public syntax | Oleoo 3.1.1 | 465/909 | 51.16% | 3,183 | 314.17 |
+| Oleoo accepted releases | cinekey 0.2.0 | 6,185/6,672 | 92.70% | 1,240,380 | 0.81 |
+| Oleoo accepted releases | Hunch 2.0.2 | 6,120/6,672 | 91.73% | 13,932 | 71.78 |
+| Oleoo accepted releases | Oleoo 3.1.1 | 6,672/6,672 | 100.00% | 3,657 | 273.43 |
 
 The Hunch input set contains 911 cases; 909 provide at least one shared identification expectation. All 911 inputs participate in timing. Oleoo’s 6,672 accepted records follow its own output conventions; 42 upstream known-error records have separate refused outputs. Its 100% here measures agreement with the accepted reference set. Public title scores also reflect punctuation and alternative-title policies.
 
-Cinekey has the highest complete-record accuracy on the local collection. Hunch has the highest agreement on the selected public syntax fixtures. Oleoo has the highest agreement on its accepted release set. On local basenames, cinekey’s measured throughput is approximately 66 times Hunch’s and 264 times Oleoo’s.
+Cinekey has the highest complete-record accuracy on the local collection. Hunch has the highest agreement on the selected public syntax fixtures. Oleoo has the highest agreement on its accepted release set. On local basenames, cinekey’s measured throughput is approximately 90 times Hunch’s and 358 times Oleoo’s.
 
 Cinekey recognizes technical anchors that precede years, contextual release-language markers, bracketed language pairs, explicit episode sequences and ranges, movie installment years, numeric and Roman season words, calendar seasons, episode revision suffixes, and anime release prefixes. Parenthesized title annotations preserve accompanying names and qualifiers. Sole numeric movie titles retain their identity. Compound source and edition phrases delimit release metadata, and normalized technical fields recognize split codec spellings. Bonus-content boundaries separate title, year, and ordinal fields. Technical vocabulary uses bounded ASCII keys on the stack and static pattern dispatch. Tokens borrow the input and store UTF-8 spans, separators, and bracket state.
 
@@ -38,7 +38,7 @@ The local snapshot contains 2,855 basenames and their saved ancestor names: 2,57
 | Movies | 276 | 274 (99.28%) | 274 (99.28%) | 262 (94.93%) | 266 (96.38%) |
 | Total | 2,855 | 2,768 (96.95%) | 2,847 (99.72%) | 2,329 (81.58%) | 2,253 (78.91%) |
 
-Directory context supplies the saved ancestor names and movie/series input classification. Cinekey reaches 2,847/2,855 complete records (99.72%) with this input and measures approximately 503,096 calls/s in a separate context replay. This rate is the median of six alternating process runs, each with 20 passes. Hunch and Oleoo receive basename strings in the local comparison.
+Directory context supplies the saved ancestor names and movie/series input classification. Cinekey reaches 2,847/2,855 complete records (99.72%) with this input and measures approximately 709,947 calls/s in a separate 20-pass context replay. Hunch and Oleoo receive basename strings in the local comparison.
 
 Cinekey’s contextual results match 2,312/2,312 episode records, 279/281 movie records, and 256/262 supplement records. Five movie records live in the series tree. The eight remaining mismatches consist of six supplements and two movie titles. Four supplement errors concern descriptive bonus titles; two concern sample-video classification. The movie errors concern two uploader-prefixed translated titles. Basename parsing has 26 episode titles that require ancestor context.
 
@@ -88,7 +88,7 @@ Cinekey has 487 complete-record mismatches on this set; 480 involve the title fi
 
 Each throughput measurement loads the input strings before timing, initializes and reuses Hunch’s `Pipeline` and Oleoo’s options, warms all three parsers with one full pass, and measures 20 passes in batches of 128. Parser order rotates between batches. Parser calls are sequential. File reading, directory traversal, parser initialization, output serialization, and result export are outside the timed region. Result allocations and destruction are included. Oleoo uses `current_year: Some(2026)`. The rates are single-run measurements and vary with machine load and compiler settings.
 
-The cinekey-only replay measures three rounds of 256 passes after a warm-up. Median throughputs across six timed rounds are 658,576 calls/s on local basenames, 855,569 calls/s on Hunch syntax inputs, and 752,222 calls/s on Oleoo inputs. Native result construction and destruction are included. Peak resident memory is 4.06–4.59 MiB across these preloaded-basename runs and 5.14 MiB for the ancestor-context replay, measured with macOS `time -l`; this includes saved input strings and process overhead.
+The cinekey-only replay measures three rounds of 256 passes after a warm-up. Median throughputs are 960,751 calls/s on local basenames, 1,175,077 calls/s on Hunch syntax inputs, and 1,011,047 calls/s on Oleoo inputs. Native result construction and destruction are included. Peak resident memory is 4.14–4.78 MiB across these preloaded-basename runs and 5.33 MiB for the ancestor-context replay, measured with macOS `time -l`; this includes saved input strings and process overhead.
 
 The evaluation package operates on saved JSONL corpora. Each input row has a string `name`, an optional `expected_kind` (`movie`, `series`, or `null`), and an `ancestors` array ordered nearest first. Context replay uses a movie or series kind for every row. The local inputs and references are private; upstream fixture sources supply the public inputs. Hunch and Oleoo belong to this separate development package.
 
@@ -126,6 +126,6 @@ The evaluation package uses Rust for fixture preparation, Unicode-aware scoring,
 
 The measured local collection is cinekey’s strongest domain: the contextual parser gets every episode identification record correct, has two movie mismatches, and has six supplement mismatches. The public measurements show substantial room for broader syntax compatibility, especially on the Hunch set. The local reference evaluates the collection used during development; held-out collections would provide additional evidence about transfer to other PT libraries.
 
-The public sets are useful complementary references. Hunch emphasizes varied identification grammar, while Oleoo emphasizes movie release conventions. The target remains accurate, fast, memory-conscious parsing of the local PT naming mix. Ranked candidates and field evidence preserve alternative interpretations within that API.
+The public sets are useful complementary references. Hunch emphasizes varied identification grammar, while Oleoo emphasizes movie release conventions. The target remains accurate, fast, memory-conscious parsing of the local PT naming mix. The API returns one identification and technical-metadata record for each input.
 
 The comparison scope is the three measured native APIs and the listed identification fields. Their outputs carry different technical-property sets. The broader ecosystem includes [GuessIt](https://github.com/guessit-io/guessit), which covers movies and television episodes, and [Anitomy](https://github.com/erengy/anitomy), which focuses on anime. Industry-wide accuracy and speed rankings require comparable measurements across those libraries and independent inputs.

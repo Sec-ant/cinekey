@@ -274,11 +274,8 @@ fn replay_local_corpus(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    let mut candidates = 0usize;
-    let mut multiple = 0usize;
     let mut missing_title = 0usize;
     let mut kinds = BTreeMap::<String, usize>::new();
-    let mut confidences = BTreeMap::<String, usize>::new();
 
     for row in &rows {
         std::hint::black_box(cinekey::parse(std::hint::black_box(row.name.as_str())));
@@ -300,17 +297,8 @@ fn replay_local_corpus(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
             };
             let report = cinekey::parse_with_context(&row.name, &context);
             if pass == 0 {
-                candidates += report.candidates.len();
-                multiple += usize::from(report.candidates.len() > 1);
-                if let Some(top) = report.candidates.first() {
-                    *kinds.entry(format!("{:?}", top.kind)).or_default() += 1;
-                    *confidences
-                        .entry(format!("{:?}", top.confidence))
-                        .or_default() += 1;
-                    missing_title += usize::from(top.title.is_none());
-                } else {
-                    missing_title += 1;
-                }
+                *kinds.entry(format!("{:?}", report.kind)).or_default() += 1;
+                missing_title += usize::from(report.title.is_none());
             }
             std::hint::black_box(report);
         }
@@ -321,11 +309,8 @@ fn replay_local_corpus(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         "Replayed {} local names x {LOCAL_PASSES} passes per mode",
         rows.len()
     );
-    println!(
-        "Candidates: {candidates}; files with alternatives: {multiple}; top candidate without title: {missing_title}"
-    );
-    println!("Top kinds: {kinds:?}");
-    println!("Top confidence: {confidences:?}");
+    println!("Parsed records without a title: {missing_title}");
+    println!("Media kinds: {kinds:?}");
     if parses > 0 {
         println!(
             "Basename parser throughput: {:.0} calls/s",

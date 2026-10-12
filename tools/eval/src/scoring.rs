@@ -163,7 +163,7 @@ fn local_match(actual: &Value, expected: &Value, field: &str, aliases: &Value) -
 fn actual_fields(row: &Value, parser: &str, scope: Scope) -> Result<Value> {
     let data = &row[parser];
     if matches!(parser, "cinekey" | "contextual") {
-        let candidate = &data["candidates"][0];
+        let candidate = data;
         let episodes = match scope {
             Scope::Local => {
                 let mut episodes = candidate["episodes"]
@@ -525,11 +525,13 @@ mod tests {
 
     #[test]
     fn shared_projection_preserves_season_pack_and_absolute_numbering() {
-        let row = json!({"cinekey": {"candidates": [{"kind": "season_pack", "episodes": [], "absolute_episodes": []}]}});
+        let row =
+            json!({"cinekey": {"kind": "season_pack", "episodes": [], "absolute_episodes": []}});
         let actual = actual_fields(&row, "cinekey", Scope::Local).unwrap();
         assert_eq!(actual["kind"], "episode");
         assert_eq!(actual["episodes"], Value::Null);
-        let row = json!({"cinekey": {"candidates": [{"kind": "episode", "episodes": [], "absolute_episodes": [12]}]}});
+        let row =
+            json!({"cinekey": {"kind": "episode", "episodes": [], "absolute_episodes": [12]}});
         assert_eq!(
             actual_fields(&row, "cinekey", Scope::Public).unwrap()["episodes"],
             json!([12])
@@ -543,7 +545,7 @@ mod tests {
             json!({"name": "B", "expected": {}}),
         ];
         let outputs = vec![
-            Ok(json!({"name": "A", "cinekey": {"candidates": [{"title": "A", "year": 2024}]}})),
+            Ok(json!({"name": "A", "cinekey": {"title": "A", "year": 2024}})),
             Ok(json!({"name": "B", "oleoo_error": "parse error"})),
         ];
         let (summary, _) = score_public(&labels, outputs.into_iter()).unwrap();

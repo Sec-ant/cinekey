@@ -25,7 +25,7 @@ pub enum MediaKind {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
-/// The numbering system used by an episode candidate.
+/// The numbering system used by a parsed episode.
 pub enum EpisodeNumbering {
     SeasonEpisode,
     Absolute,
@@ -62,64 +62,15 @@ pub struct ExtraInfo {
     pub number: Option<u16>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Confidence {
-    Low,
-    Medium,
-    High,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum EvidenceField {
-    Kind,
-    Title,
-    TitleAnnotation,
-    Year,
-    Season,
-    Episode,
-    AbsoluteEpisode,
-    EpisodeTitle,
-    Resolution,
-    Source,
-    VideoCodec,
-    DynamicRange,
-    AudioCodec,
-    AudioChannels,
-    ReleaseGroup,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum EvidenceSource {
-    Filename,
-    ParentDirectory,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-/// A half-open range of UTF-8 byte offsets into an evidence source.
-pub struct Span {
-    pub start: usize,
-    pub end: usize,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Span {
+    start: usize,
+    end: usize,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-/// The source text, offsets, and recognizer supporting a candidate field.
-///
-/// Filename offsets are relative to the final input component. Directory offsets
-/// are relative to the ancestor whose text supplied the field.
-pub struct Evidence {
-    pub field: EvidenceField,
-    pub rule: String,
-    pub text: String,
-    pub span: Span,
-    pub source: EvidenceSource,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-/// One complete interpretation, with identification, technical metadata, and evidence.
-pub struct Candidate {
+/// Identification and technical metadata parsed from one media name.
+pub struct ParsedMedia {
     pub kind: MediaKind,
     pub title: Option<String>,
     /// Parenthesized names and qualifiers accompanying the primary title.
@@ -139,18 +90,26 @@ pub struct Candidate {
     pub audio_codec: Vec<String>,
     pub audio_channels: Option<String>,
     pub release_group: Option<String>,
-    /// Heuristic signal for ordering candidate interpretations.
-    pub score: i32,
-    pub confidence: Confidence,
-    pub evidence: Vec<Evidence>,
-    pub diagnostics: Vec<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-/// The original input and its candidate interpretations in descending score order.
-pub struct ParseReport {
-    pub input: String,
-    pub candidates: Vec<Candidate>,
+#[derive(Clone, Debug)]
+struct Candidate {
+    media: ParsedMedia,
+    score: i32,
+    title_span: Option<Span>,
+}
+
+impl std::ops::Deref for Candidate {
+    type Target = ParsedMedia;
+    fn deref(&self) -> &Self::Target {
+        &self.media
+    }
+}
+
+impl std::ops::DerefMut for Candidate {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.media
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -167,7 +126,6 @@ struct EpisodeMarker {
     last_token_index: usize,
     season: Option<u16>,
     episodes: Vec<u16>,
-    episode_spans: Option<Box<[Span]>>,
     is_pack: bool,
     numbering: EpisodeNumbering,
     rule: &'static str,
@@ -187,7 +145,6 @@ impl EpisodeMarker {
             last_token_index: token_range.1,
             season,
             episodes,
-            episode_spans: None,
             is_pack,
             numbering,
             rule,
@@ -197,9 +154,9 @@ impl EpisodeMarker {
 
 /// Parse a release name or the final component of a path-like string.
 ///
-/// Common media and subtitle extensions are recognized. The report retains the
-/// original input, and filename evidence uses offsets into its final component.
-pub fn parse(input: &str) -> ParseReport {
+/// Common media and subtitle extensions are recognized. Structural and release
+/// markers select one best interpretation.
+pub fn parse(input: &str) -> ParsedMedia {
     parse_with_context(input, &ParseContext::default())
 }
 
@@ -214,21 +171,19 @@ pub fn parse(input: &str) -> ParseReport {
 ///     expected_kind: Some(ExpectedKind::Series),
 ///     ancestors: vec!["Season 1", "Example.Show.S01.1080p"],
 /// };
-/// let report = parse_with_context("E02.mkv", &context);
-/// let candidate = &report.candidates[0];
-/// assert_eq!(candidate.title.as_deref(), Some("Example Show"));
-/// assert_eq!(candidate.season, Some(1));
-/// assert_eq!(candidate.episodes, [2]);
+/// let media = parse_with_context("E02.mkv", &context);
+/// assert_eq!(media.title.as_deref(), Some("Example Show"));
+/// assert_eq!(media.season, Some(1));
+/// assert_eq!(media.episodes, [2]);
 /// ```
-pub fn parse_with_context(input: &str, context: &ParseContext<'_>) -> ParseReport {
-    let season_context = context
+pub fn parse_with_context(input: &str, context: &ParseContext<'_>) -> ParsedMedia {
+    let season_hint = context
         .ancestors
         .iter()
-        .find_map(|ancestor| season_directory_number(ancestor).map(|season| (*ancestor, season)));
-    let season_hint = season_context.map(|(_, season)| season);
-    let mut report = parse_internal(input, context.expected_kind, season_hint);
+        .find_map(|ancestor| season_directory_number(ancestor));
+    let mut candidates = parse_internal(input, context.expected_kind, season_hint);
     if let Some(season) = season_hint {
-        for candidate in &mut report.candidates {
+        for candidate in &mut candidates {
             if candidate.kind == MediaKind::Episode
                 && candidate.season.is_none()
                 && candidate.episode_numbering == Some(EpisodeNumbering::SeasonUnspecified)
@@ -236,115 +191,53 @@ pub fn parse_with_context(input: &str, context: &ParseContext<'_>) -> ParseRepor
                 candidate.season = Some(season);
                 candidate.episode_numbering = Some(EpisodeNumbering::SeasonEpisode);
                 candidate.score += 8;
-                if let Some((directory, _)) = season_context {
-                    candidate.evidence.push(Evidence {
-                        field: EvidenceField::Season,
-                        rule: "season_directory_context".to_owned(),
-                        text: directory.to_owned(),
-                        span: Span {
-                            start: 0,
-                            end: directory.len(),
-                        },
-                        source: EvidenceSource::ParentDirectory,
-                    });
-                }
-                candidate
-                    .diagnostics
-                    .push(format!("Season {season} supplied by directory context."));
             }
-            if candidate.kind == MediaKind::Episode
-                && candidate.season == Some(season)
-                && candidate.evidence.iter().any(|evidence| {
-                    matches!(
-                        evidence.rule.as_str(),
-                        "series_dash_episode_from_season_context"
-                            | "compact_episode_from_season_context"
-                    )
+        }
+        candidates.sort_by_key(|candidate| std::cmp::Reverse(candidate.score));
+    }
+    if !candidates.iter().any(|candidate| candidate.title.is_some()) {
+        for ancestor in &context.ancestors {
+            if is_context_directory(ancestor) {
+                continue;
+            }
+            let Some(parent) = parse_internal(ancestor, context.expected_kind, None)
+                .into_iter()
+                .find(|candidate| {
+                    candidate.title.is_some() && candidate.kind != MediaKind::Unknown
                 })
-                && let Some((directory, _)) = season_context
-            {
-                candidate.evidence.push(Evidence {
-                    field: EvidenceField::Season,
-                    rule: "season_directory_context".to_owned(),
-                    text: directory.to_owned(),
-                    span: Span {
-                        start: 0,
-                        end: directory.len(),
-                    },
-                    source: EvidenceSource::ParentDirectory,
-                });
+            else {
+                continue;
+            };
+            let ParsedMedia {
+                title: Some(title),
+                title_annotations,
+                ..
+            } = parent.media
+            else {
+                continue;
+            };
+            for candidate in &mut candidates {
+                candidate.title = Some(title.clone());
+                candidate.title_annotations.clone_from(&title_annotations);
             }
+            break;
         }
-        report
-            .candidates
-            .sort_by_key(|candidate| std::cmp::Reverse(candidate.score));
     }
-    if report.candidates.iter().any(|c| c.title.is_some()) {
-        return report;
-    }
-
-    for ancestor in &context.ancestors {
-        if is_context_directory(ancestor) {
-            continue;
-        }
-        let parent_report = parse_internal(ancestor, context.expected_kind, None);
-        let Some(parent) = parent_report
-            .candidates
-            .into_iter()
-            .find(|candidate| candidate.title.is_some() && candidate.kind != MediaKind::Unknown)
-        else {
-            continue;
-        };
-        let Some(title) = parent.title else { continue };
-        for candidate in &mut report.candidates {
-            candidate.title = Some(title.clone());
-            if !parent.title_annotations.is_empty() {
-                candidate
-                    .title_annotations
-                    .clone_from(&parent.title_annotations);
-                let offset = ancestor.rfind(['/', '\\']).map_or(0, |index| index + 1);
-                for annotation in parent
-                    .evidence
-                    .iter()
-                    .filter(|item| item.field == EvidenceField::TitleAnnotation)
-                {
-                    let mut evidence = annotation.clone();
-                    evidence.source = EvidenceSource::ParentDirectory;
-                    evidence.rule = "nearest_ancestor_title_annotation".to_owned();
-                    evidence.span.start += offset;
-                    evidence.span.end += offset;
-                    candidate.evidence.push(evidence);
-                }
-            }
-            candidate.score += 18;
-            candidate.evidence.push(Evidence {
-                field: EvidenceField::Title,
-                rule: "nearest_ancestor_title".to_owned(),
-                text: (*ancestor).to_owned(),
-                span: Span {
-                    start: 0,
-                    end: ancestor.len(),
-                },
-                source: EvidenceSource::ParentDirectory,
-            });
-            candidate.diagnostics.push(format!(
-                "Title supplied by the nearest parseable directory: {ancestor}"
-            ));
-            finish_confidence(candidate);
-        }
-        break;
-    }
-    report
+    candidates
+        .into_iter()
+        .next()
+        .expect("every input has a structural or unknown interpretation")
+        .media
 }
 
 fn parse_internal(
     input: &str,
     expected: Option<ExpectedKind>,
     season_hint: Option<u16>,
-) -> ParseReport {
+) -> Vec<Candidate> {
     let (name, extension_offset) = filename_stem(input);
     let tokens = tokenize(name);
-    let mut candidates = Vec::new();
+    let mut candidates = Vec::with_capacity(1);
     let tech_index = first_technical_token(&tokens);
     let extra = extra_marker(name, &tokens, tech_index, expected);
     let extra_boundary = extra.as_ref().map(|(index, start, _)| {
@@ -374,14 +267,12 @@ fn parse_internal(
         let mut title_end = tokens
             .get(title_boundary)
             .map_or(0, |token| token_group_start(name, token));
-        let mut title_rule = "text_before_episode_anchor";
         if marker.numbering == EpisodeNumbering::Absolute
             && let Some(main_title_end) = spaced_dash_offset(&name[..title_end])
             && let Some(main_title) = title_before_offset(name, main_title_end)
         {
             title = Some(main_title);
             title_end = main_title_end;
-            title_rule = "series_title_before_hyphenated_subtitle";
         }
         let mut candidate = empty_candidate(MediaKind::Episode, 82);
         candidate.title = title;
@@ -396,59 +287,12 @@ fn parse_internal(
         candidate.release_group = group.clone();
         if let Some(year_index) = title_year {
             candidate.year = tokens[year_index].text.parse::<u16>().ok();
-            candidate.evidence.push(token_evidence(
-                EvidenceField::Year,
-                "series_year_before_episode_marker",
-                &tokens[year_index],
-                EvidenceSource::Filename,
-            ));
         }
-        candidate.evidence.push(token_evidence(
-            EvidenceField::Kind,
-            marker.rule,
-            &tokens[boundary],
-            EvidenceSource::Filename,
-        ));
-        candidate.evidence.push(token_evidence(
-            match marker.numbering {
-                EpisodeNumbering::SeasonEpisode => EvidenceField::Season,
-                EpisodeNumbering::Absolute => EvidenceField::AbsoluteEpisode,
-                EpisodeNumbering::SeasonUnspecified => EvidenceField::Episode,
-            },
-            marker.rule,
-            &tokens[boundary],
-            EvidenceSource::Filename,
-        ));
-        for (index, episode) in marker.episodes.iter().enumerate() {
-            candidate.evidence.push(Evidence {
-                field: if marker.numbering == EpisodeNumbering::Absolute {
-                    EvidenceField::AbsoluteEpisode
-                } else {
-                    EvidenceField::Episode
-                },
-                rule: marker.rule.to_owned(),
-                text: episode.to_string(),
-                span: marker
-                    .episode_spans
-                    .as_deref()
-                    .and_then(|spans| spans.get(index))
-                    .copied()
-                    .unwrap_or_else(|| {
-                        marker_span(&tokens, marker.token_index, marker.last_token_index)
-                    }),
-                source: EvidenceSource::Filename,
-            });
-        }
-        if let Some(title) = &candidate.title {
-            candidate.evidence.push(Evidence {
-                field: EvidenceField::Title,
-                rule: title_rule.to_owned(),
-                text: title.clone(),
-                span: Span {
-                    start: 0,
-                    end: title_end,
-                },
-                source: EvidenceSource::Filename,
+
+        if candidate.title.is_some() {
+            candidate.title_span = Some(Span {
+                start: 0,
+                end: title_end,
             });
         }
         let year_index = tokens
@@ -459,14 +303,8 @@ fn parse_internal(
             .find_map(|(index, token)| is_release_year(token.text).then_some(index));
         if let Some(index) = year_index.filter(|_| title_year.is_none()) {
             candidate.year = tokens[index].text.parse::<u16>().ok();
-            candidate.evidence.push(token_evidence(
-                EvidenceField::Year,
-                "series_year_after_episode_marker",
-                &tokens[index],
-                EvidenceSource::Filename,
-            ));
         }
-        if let Some((value, span)) = episode_title(
+        if let Some(value) = episode_title(
             name,
             &tokens,
             marker.last_token_index,
@@ -474,17 +312,10 @@ fn parse_internal(
             year_index,
         ) {
             candidate.episode_title = Some(value.clone());
-            candidate.evidence.push(Evidence {
-                field: EvidenceField::EpisodeTitle,
-                rule: "text_after_episode_anchor".to_owned(),
-                text: value,
-                span,
-                source: EvidenceSource::Filename,
-            });
         }
         candidate.score += expected_score(expected, ExpectedKind::Series);
         fill_technical(&mut candidate, name, &tokens, tech_index, group.as_deref());
-        finish_confidence(&mut candidate);
+
         candidates.push(candidate);
     }
 
@@ -508,46 +339,23 @@ fn parse_internal(
             .min()
             .unwrap_or(marker.token_index);
         candidate.title = title_before(name, &tokens, boundary);
-        if let Some(title) = &candidate.title {
-            candidate.evidence.push(Evidence {
-                field: EvidenceField::Title,
-                rule: "text_before_season_anchor".to_owned(),
-                text: title.clone(),
-                span: Span {
-                    start: 0,
-                    end: tokens
-                        .get(boundary)
-                        .map_or(name.len(), |token| token_group_start(name, token)),
-                },
-                source: EvidenceSource::Filename,
+        if candidate.title.is_some() {
+            candidate.title_span = Some(Span {
+                start: 0,
+                end: tokens
+                    .get(boundary)
+                    .map_or(name.len(), |token| token_group_start(name, token)),
             });
         }
         if let Some(index) = year_index {
             candidate.year = tokens[index].text.parse().ok();
-            candidate.evidence.push(token_evidence(
-                EvidenceField::Year,
-                "series_year_at_season_marker",
-                &tokens[index],
-                EvidenceSource::Filename,
-            ));
         }
         candidate.season = marker.season;
         candidate.release_group = group.clone();
-        candidate.evidence.push(token_evidence(
-            EvidenceField::Kind,
-            "season_pack_marker",
-            &tokens[marker.token_index],
-            EvidenceSource::Filename,
-        ));
-        candidate.evidence.push(token_evidence(
-            EvidenceField::Season,
-            "season_pack_marker",
-            &tokens[marker.token_index],
-            EvidenceSource::Filename,
-        ));
+
         candidate.score += expected_score(expected, ExpectedKind::Series);
         fill_technical(&mut candidate, name, &tokens, tech_index, group.as_deref());
-        finish_confidence(&mut candidate);
+
         candidates.push(candidate);
     }
 
@@ -608,44 +416,14 @@ fn parse_internal(
                 title_end = end;
             }
             candidate.release_group = group.clone();
-            if let Some((movie_index, ordinal)) = movie_marker {
-                if let Some(ordinal) = ordinal {
-                    candidate
-                        .diagnostics
-                        .push(format!("Explicit movie installment marker: {ordinal}"));
-                }
-                candidate.evidence.push(token_evidence(
-                    EvidenceField::Kind,
-                    "explicit_movie_marker",
-                    &tokens[movie_index],
-                    EvidenceSource::Filename,
-                ));
-            }
             if let Some(index) = year_index {
                 let year = tokens[index].text.parse::<u16>().ok();
                 candidate.year = year;
-                candidate.evidence.push(token_evidence(
-                    EvidenceField::Year,
-                    "four_digit_release_year",
-                    &tokens[index],
-                    EvidenceSource::Filename,
-                ));
             }
-            if let Some(title) = &candidate.title {
-                candidate.evidence.push(Evidence {
-                    field: EvidenceField::Title,
-                    rule: if year_index.is_some() {
-                        "text_before_year"
-                    } else {
-                        "text_before_technical_anchor"
-                    }
-                    .to_owned(),
-                    text: title.clone(),
-                    span: Span {
-                        start: title_start,
-                        end: title_end,
-                    },
-                    source: EvidenceSource::Filename,
+            if candidate.title.is_some() {
+                candidate.title_span = Some(Span {
+                    start: title_start,
+                    end: title_end,
                 });
             }
             candidate.score += expected_score(expected, ExpectedKind::Movie);
@@ -661,7 +439,7 @@ fn parse_internal(
                 }
             }
             fill_technical(&mut candidate, name, &tokens, tech_index, group.as_deref());
-            finish_confidence(&mut candidate);
+
             candidates.push(candidate);
         }
     }
@@ -683,40 +461,19 @@ fn parse_internal(
         candidate.title = title_before_offset(name, title_end);
         if let Some(index) = year_index {
             candidate.year = tokens[index].text.parse().ok();
-            candidate.evidence.push(token_evidence(
-                EvidenceField::Year,
-                "year_before_extra_marker",
-                &tokens[index],
-                EvidenceSource::Filename,
-            ));
         }
         candidate.extra = Some(info);
         candidate.release_group = group.clone();
-        candidate.evidence.push(token_evidence(
-            EvidenceField::Kind,
-            if tokens[index].bracketed {
-                "bracketed_extra_marker"
-            } else {
-                "unbracketed_series_extra_marker"
-            },
-            &tokens[index],
-            EvidenceSource::Filename,
-        ));
-        if let Some(title) = &candidate.title {
-            candidate.evidence.push(Evidence {
-                field: EvidenceField::Title,
-                rule: "text_before_extra_marker_group".to_owned(),
-                text: title.clone(),
-                span: Span {
-                    start: 0,
-                    end: title_end,
-                },
-                source: EvidenceSource::Filename,
+
+        if candidate.title.is_some() {
+            candidate.title_span = Some(Span {
+                start: 0,
+                end: title_end,
             });
         }
         candidate.score += expected_score(expected, ExpectedKind::Series);
         fill_technical(&mut candidate, name, &tokens, tech_index, group.as_deref());
-        finish_confidence(&mut candidate);
+
         candidates.push(candidate);
     }
 
@@ -725,12 +482,7 @@ fn parse_internal(
         candidate.title = title_before(name, &tokens, tech_index.unwrap_or(tokens.len()));
         candidate.release_group = group.clone();
         fill_technical(&mut candidate, name, &tokens, tech_index, group.as_deref());
-        if expected == Some(ExpectedKind::Series) {
-            candidate.diagnostics.push(
-                "Path suggests a series, but no season or episode marker was found.".to_owned(),
-            );
-        }
-        finish_confidence(&mut candidate);
+
         candidates.push(candidate);
     }
 
@@ -745,10 +497,7 @@ fn parse_internal(
             && a.season == b.season
             && a.episodes == b.episodes
     });
-    ParseReport {
-        input: input.to_owned(),
-        candidates,
-    }
+    candidates
 }
 
 fn episode_markers(
@@ -1082,17 +831,6 @@ fn coalesce_episode_markers(
             && marker.token_index > previous.last_token_index
             && episode_marker_gap(name, tokens, previous.last_token_index, marker.token_index);
         if adjacent {
-            let mut spans = previous
-                .episode_spans
-                .take()
-                .map(Vec::from)
-                .unwrap_or_else(|| {
-                    vec![
-                        marker_span(tokens, previous.token_index, previous.last_token_index);
-                        previous.episodes.len()
-                    ]
-                });
-            let marker_len = marker.episodes.len();
             if separator_gap_is_dash(
                 name,
                 &tokens[previous.last_token_index],
@@ -1105,36 +843,16 @@ fn coalesce_episode_markers(
             {
                 let start = *previous.episodes.last().unwrap();
                 let end = marker.episodes[0];
-                spans.extend(std::iter::repeat_n(
-                    marker_span(tokens, previous.last_token_index, marker.last_token_index),
-                    usize::from(end - start - 1),
-                ));
                 previous.episodes.extend(start + 1..=end);
             } else {
                 previous.episodes.extend(marker.episodes);
             }
-            if let Some(marker_spans) = marker.episode_spans {
-                spans.extend_from_slice(&marker_spans);
-            } else {
-                spans.extend(std::iter::repeat_n(
-                    marker_span(tokens, marker.token_index, marker.last_token_index),
-                    marker_len,
-                ));
-            }
-            previous.episode_spans = Some(spans.into_boxed_slice());
             previous.last_token_index = marker.last_token_index;
         } else {
             combined.push(marker);
         }
     }
     combined
-}
-
-fn marker_span(tokens: &[Token<'_>], first: usize, last: usize) -> Span {
-    Span {
-        start: tokens[first].start,
-        end: tokens[last].end,
-    }
 }
 
 fn episode_marker_gap(name: &str, tokens: &[Token<'_>], previous: usize, next: usize) -> bool {
@@ -1941,12 +1659,9 @@ fn separate_title_annotations(name: &str, candidate: &mut Candidate) {
     ) {
         return;
     }
-    let Some(evidence_index) = candidate.evidence.iter().position(|item| {
-        item.field == EvidenceField::Title && item.source == EvidenceSource::Filename
-    }) else {
+    let Some(span) = candidate.title_span else {
         return;
     };
-    let span = candidate.evidence[evidence_index].span;
     let Some(raw) = name.get(span.start..span.end) else {
         return;
     };
@@ -2017,20 +1732,11 @@ fn separate_title_annotations(name: &str, candidate: &mut Candidate) {
             cursor += 1;
         }
     }
-    candidate.title = Some(title.clone());
-    candidate.evidence[evidence_index].text = title;
-    candidate.evidence[evidence_index].span.end = span.start + open;
-    candidate.evidence[evidence_index].rule = "primary_title_before_annotations".to_owned();
+    candidate.title = Some(title);
     for span in annotations {
-        let value = clean_title(&name[span.start..span.end]).unwrap_or_default();
-        candidate.title_annotations.push(value.clone());
-        candidate.evidence.push(Evidence {
-            field: EvidenceField::TitleAnnotation,
-            rule: "parenthesized_title_annotation".to_owned(),
-            text: value,
-            span,
-            source: EvidenceSource::Filename,
-        });
+        candidate
+            .title_annotations
+            .push(clean_title(&name[span.start..span.end]).unwrap_or_default());
     }
 }
 
@@ -2415,18 +2121,6 @@ fn fill_technical(
 ) {
     if let Some(value) = group {
         candidate.release_group = Some(value.to_owned());
-        if let Some(start) = name.rfind(value) {
-            candidate.evidence.push(Evidence {
-                field: EvidenceField::ReleaseGroup,
-                rule: "final_hyphen_suffix".to_owned(),
-                text: value.to_owned(),
-                span: Span {
-                    start,
-                    end: start + value.len(),
-                },
-                source: EvidenceSource::Filename,
-            });
-        }
     }
     for (i, token) in tokens.iter().enumerate() {
         if !token.bracketed && first_tech.is_some_and(|start| i < start) {
@@ -2465,52 +2159,37 @@ fn fill_technical(
             .or_else(|| combined_resolution.map(str::to_owned));
         if let Some(resolution) = resolution {
             candidate.resolution.get_or_insert(resolution);
-            candidate.evidence.push(token_evidence(
-                EvidenceField::Resolution,
-                "resolution_token",
-                token,
-                EvidenceSource::Filename,
-            ));
         }
-        let (source, rule) = match key {
+        let source = match key {
             b"bluray" | b"bdrip" | b"brrip" | b"bd" | b"bdmux" | b"brmux" | b"bdripmux"
-            | b"brripmux" => (Some("Blu-ray"), "blu_ray_source"),
-            _ if combined_resolution.is_some() => (Some("Blu-ray"), "blu_ray_source"),
+            | b"brripmux" => Some("Blu-ray"),
+            _ if combined_resolution.is_some() => Some("Blu-ray"),
             b"blu"
                 if tokens
                     .get(i + 1)
                     .is_some_and(|next| next.text.eq_ignore_ascii_case("ray")) =>
             {
-                (Some("Blu-ray"), "blu_ray_source")
+                Some("Blu-ray")
             }
             b"web"
                 if tokens.get(i + 1).is_some_and(|next| {
                     next.before == Separator::Dash && next.text.eq_ignore_ascii_case("dl")
                 }) =>
             {
-                (Some("WEB-DL"), "web_dl_source")
+                Some("WEB-DL")
             }
-            b"webdl" | b"webrip" | b"web" => (Some("Web"), "web_source"),
-            b"hdtv" | b"pdtv" | b"hdtvrip" => (Some("HDTV"), "hdtv_source"),
-            b"sdtv" | b"tvrip" => (Some("SDTV"), "sdtv_source"),
-            b"dvd" | b"dvdrip" | b"dvdr" | b"dvdscr" => (Some("DVD"), "dvd_source"),
-            b"vhs" => (Some("VHS"), "vhs_source"),
-            b"hdcam" | b"camrip" => (Some("CAM"), "camera_source"),
-            b"hdrip" => (Some("HD Rip"), "hd_rip_source"),
-            b"remux" => (Some("Remux"), "remux_source"),
-            _ => (None, ""),
+            b"webdl" | b"webrip" | b"web" => Some("Web"),
+            b"hdtv" | b"pdtv" | b"hdtvrip" => Some("HDTV"),
+            b"sdtv" | b"tvrip" => Some("SDTV"),
+            b"dvd" | b"dvdrip" | b"dvdr" | b"dvdscr" => Some("DVD"),
+            b"vhs" => Some("VHS"),
+            b"hdcam" | b"camrip" => Some("CAM"),
+            b"hdrip" => Some("HD Rip"),
+            b"remux" => Some("Remux"),
+            _ => None,
         };
         if let Some(source) = source {
             candidate.source.get_or_insert_with(|| source.to_owned());
-            let mut evidence =
-                token_evidence(EvidenceField::Source, rule, token, EvidenceSource::Filename);
-            if key == b"blu"
-                && let Some(next) = tokens.get(i + 1)
-            {
-                evidence.span.end = next.end;
-                evidence.text = name[token.start..next.end].to_owned();
-            }
-            candidate.evidence.push(evidence);
         }
         let codec = match key {
             b"x264" | b"h264" | b"avc" => Some("H.264"),
@@ -2526,30 +2205,9 @@ fn fill_technical(
             candidate
                 .video_codec
                 .get_or_insert_with(|| codec.to_owned());
-            let end = if key == b"h" {
-                tokens[i + 1].end
-            } else {
-                token.end
-            };
-            candidate.evidence.push(Evidence {
-                field: EvidenceField::VideoCodec,
-                rule: "video_codec_alias".to_owned(),
-                text: name[token.start..end].to_owned(),
-                span: Span {
-                    start: token.start,
-                    end,
-                },
-                source: EvidenceSource::Filename,
-            });
         }
         if matches!(key, b"dv" | b"dovi" | b"dolbyvision") {
             candidate.dynamic_range.push("Dolby Vision".to_owned());
-            candidate.evidence.push(token_evidence(
-                EvidenceField::DynamicRange,
-                "dolby_vision_alias",
-                token,
-                EvidenceSource::Filename,
-            ));
         }
         let hdr = match key {
             b"hdr10plus" => Some("HDR10+"),
@@ -2560,17 +2218,6 @@ fn fill_technical(
         };
         if let Some(value) = hdr {
             candidate.dynamic_range.push(value.to_owned());
-            let end = token.end + usize::from(value == "HDR10+" && key == b"hdr10");
-            candidate.evidence.push(Evidence {
-                field: EvidenceField::DynamicRange,
-                rule: "hdr_alias".to_owned(),
-                text: name[token.start..end].to_owned(),
-                span: Span {
-                    start: token.start,
-                    end,
-                },
-                source: EvidenceSource::Filename,
-            });
         }
         let codec = if key == b"dd"
             && tokens
@@ -2581,16 +2228,10 @@ fn fill_technical(
         } else {
             audio_codec(key)
         };
-        if let Some(codec) = codec {
-            if !candidate.audio_codec.iter().any(|c| c == codec) {
-                candidate.audio_codec.push(codec.to_owned());
-            }
-            candidate.evidence.push(token_evidence(
-                EvidenceField::AudioCodec,
-                "audio_codec_alias",
-                token,
-                EvidenceSource::Filename,
-            ));
+        if let Some(codec) = codec
+            && !candidate.audio_codec.iter().any(|c| c == codec)
+        {
+            candidate.audio_codec.push(codec.to_owned());
         }
         if text
             .as_bytes()
@@ -2609,12 +2250,6 @@ fn fill_technical(
             candidate
                 .audio_channels
                 .get_or_insert_with(|| format!("{channel}.{layout}"));
-            candidate.evidence.push(token_evidence(
-                EvidenceField::AudioChannels,
-                "audio_channel_layout",
-                token,
-                EvidenceSource::Filename,
-            ));
         }
     }
 
@@ -2691,7 +2326,7 @@ fn episode_title(
     anchor: usize,
     tech: Option<usize>,
     year: Option<usize>,
-) -> Option<(String, Span)> {
+) -> Option<String> {
     let start = tokens.get(anchor)?.end;
     let boundary = match (tech.filter(|i| *i > anchor), year.filter(|i| *i > anchor)) {
         (Some(tech), Some(year)) => Some(tech.min(year)),
@@ -2701,7 +2336,7 @@ fn episode_title(
     let end = boundary
         .and_then(|i| tokens.get(i))
         .map_or(name.len(), |t| token_group_start(name, t));
-    clean_title(name.get(start..end)?).map(|title| (title, Span { start, end }))
+    clean_title(name.get(start..end)?)
 }
 
 fn release_group(name: &str, tokens: &[Token<'_>], stem_end: usize) -> Option<String> {
@@ -2750,24 +2385,6 @@ fn filename_stem(input: &str) -> (&str, usize) {
     }
 }
 
-fn token_evidence(
-    field: EvidenceField,
-    rule: &str,
-    token: &Token<'_>,
-    source: EvidenceSource,
-) -> Evidence {
-    Evidence {
-        field,
-        rule: rule.to_owned(),
-        text: token.text.to_owned(),
-        span: Span {
-            start: token.start,
-            end: token.end,
-        },
-        source,
-    }
-}
-
 fn expected_score(actual: Option<ExpectedKind>, candidate: ExpectedKind) -> i32 {
     match actual {
         Some(kind) if kind == candidate => 12,
@@ -2797,59 +2414,54 @@ fn is_context_directory(name: &str) -> bool {
 
 fn empty_candidate(kind: MediaKind, score: i32) -> Candidate {
     Candidate {
-        kind,
-        title: None,
-        title_annotations: Vec::new(),
-        year: None,
-        season: None,
-        episodes: Vec::new(),
-        absolute_episodes: Vec::new(),
-        episode_numbering: None,
-        episode_title: None,
-        extra: None,
-        resolution: None,
-        source: None,
-        video_codec: None,
-        dynamic_range: Vec::new(),
-        audio_codec: Vec::new(),
-        audio_channels: None,
-        release_group: None,
+        media: ParsedMedia {
+            kind,
+            title: None,
+            title_annotations: Vec::new(),
+            year: None,
+            season: None,
+            episodes: Vec::new(),
+            absolute_episodes: Vec::new(),
+            episode_numbering: None,
+            episode_title: None,
+            extra: None,
+            resolution: None,
+            source: None,
+            video_codec: None,
+            dynamic_range: Vec::new(),
+            audio_codec: Vec::new(),
+            audio_channels: None,
+            release_group: None,
+        },
         score,
-        confidence: Confidence::Low,
-        evidence: Vec::new(),
-        diagnostics: Vec::new(),
+        title_span: None,
     }
-}
-
-fn finish_confidence(candidate: &mut Candidate) {
-    let structural = candidate.evidence.iter().any(|e| {
-        matches!(
-            e.field,
-            EvidenceField::Episode
-                | EvidenceField::AbsoluteEpisode
-                | EvidenceField::Season
-                | EvidenceField::Year
-        )
-    });
-    candidate.confidence = if structural && candidate.title.is_some() && candidate.score >= 70 {
-        Confidence::High
-    } else if candidate.title.is_some() && candidate.score >= 35 {
-        Confidence::Medium
-    } else {
-        Confidence::Low
-    };
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn first(input: &str) -> Candidate {
-        parse(input).candidates.remove(0)
+    #[test]
+    fn every_input_returns_one_metadata_record() {
+        for input in ["", "   ", "未知标题.mkv", "[Unclosed", "???", "folder/"] {
+            let media = parse(input);
+            let encoded = serde_json::to_value(&media).unwrap();
+            assert!(encoded.is_object());
+            assert_eq!(encoded["kind"], serde_json::to_value(media.kind).unwrap());
+            assert_eq!(
+                serde_json::from_value::<ParsedMedia>(encoded).unwrap(),
+                media
+            );
+        }
+    }
+
+    fn first(input: &str) -> ParsedMedia {
+        parse(input)
     }
 
     #[test]
-    fn parses_scene_episode_and_evidence_spans() {
+    fn parses_scene_episode_metadata() {
         let result = first(
             "Slow.Horses.S04E01.Identity.Theft.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb.mkv",
         );
@@ -2860,7 +2472,6 @@ mod tests {
         assert_eq!(result.resolution.as_deref(), Some("2160p"));
         assert_eq!(result.audio_codec, vec!["E-AC-3"]);
         assert_eq!(result.audio_channels.as_deref(), Some("5.1"));
-        assert!(result.evidence.iter().all(|e| e.span.start <= e.span.end));
     }
 
     #[test]
@@ -2929,28 +2540,11 @@ mod tests {
             assert_eq!(result.title.as_deref(), Some(title), "{input}");
             assert_eq!(result.year, year, "{input}");
             assert!(result.episodes.is_empty(), "{input}");
-            for field in [EvidenceField::Kind, EvidenceField::Title] {
-                assert!(result.evidence.iter().any(|item| item.field == field));
-            }
-            if let Some(year) = year {
-                let evidence = result
-                    .evidence
-                    .iter()
-                    .find(|item| item.field == EvidenceField::Year)
-                    .unwrap();
-                assert_eq!(
-                    &input[evidence.span.start..evidence.span.end],
-                    year.to_string()
-                );
-            }
         }
         let report = parse("Example.Movie.2.1994.2021.1080p.mkv");
-        assert_eq!(
-            report.candidates[0].title.as_deref(),
-            Some("Example Movie 2 1994")
-        );
-        assert_eq!(report.candidates[0].year, Some(2021));
-        assert_eq!(report.candidates[1].year, Some(1994));
+        assert_eq!(report.title.as_deref(), Some("Example Movie 2 1994"));
+        assert_eq!(report.year, Some(2021));
+
         let report = parse_with_context(
             "Example Movie 2 1080p.mkv",
             &ParseContext {
@@ -2958,11 +2552,11 @@ mod tests {
                 ancestors: vec![],
             },
         );
-        assert_eq!(report.candidates[0].kind, MediaKind::Movie);
+        assert_eq!(report.kind, MediaKind::Movie);
     }
 
     #[test]
-    fn parenthesized_title_annotations_preserve_names_and_spans() {
+    fn parenthesized_title_annotations_preserve_names() {
         for (input, title, annotations) in [
             (
                 "Two.Night.Stand.(Aventure.d'un.soir).2014.1080p.mkv",
@@ -2983,18 +2577,6 @@ mod tests {
             let result = first(input);
             assert_eq!(result.title.as_deref(), Some(title), "{input}");
             assert_eq!(result.title_annotations, annotations, "{input}");
-            let evidence: Vec<_> = result
-                .evidence
-                .iter()
-                .filter(|item| item.field == EvidenceField::TitleAnnotation)
-                .collect();
-            assert_eq!(evidence.len(), result.title_annotations.len());
-            for (item, value) in evidence.iter().zip(&result.title_annotations) {
-                assert_eq!(
-                    clean_title(&input[item.span.start..item.span.end]).as_ref(),
-                    Some(value)
-                );
-            }
         }
         for (input, title) in [
             ("Example (Part 2).2020.1080p.mkv", "Example Part 2"),
@@ -3017,7 +2599,7 @@ mod tests {
     }
 
     #[test]
-    fn title_annotations_round_trip_and_follow_ancestor_evidence() {
+    fn title_annotations_round_trip_and_follow_ancestors() {
         let ancestor = "catalog/Example (Another Name).2020.1080p";
         let report = parse_with_context(
             "S01E02.mkv",
@@ -3026,22 +2608,13 @@ mod tests {
                 ancestors: vec![ancestor],
             },
         );
-        let candidate = &report.candidates[0];
+        let candidate = &report;
         assert_eq!(candidate.title.as_deref(), Some("Example"));
         assert_eq!(candidate.title_annotations, ["Another Name"]);
-        let evidence = candidate
-            .evidence
-            .iter()
-            .find(|item| item.field == EvidenceField::TitleAnnotation)
-            .unwrap();
-        assert_eq!(evidence.source, EvidenceSource::ParentDirectory);
-        assert_eq!(
-            &ancestor[evidence.span.start..evidence.span.end],
-            "Another Name"
-        );
+
         let encoded = serde_json::to_string(&report).unwrap();
         assert_eq!(
-            serde_json::from_str::<ParseReport>(&encoded).unwrap(),
+            serde_json::from_str::<ParsedMedia>(&encoded).unwrap(),
             report
         );
 
@@ -3049,7 +2622,7 @@ mod tests {
         let encoded = serde_json::to_string(&plain).unwrap();
         assert!(!encoded.contains("title_annotations"));
         assert_eq!(
-            serde_json::from_str::<ParseReport>(&encoded).unwrap(),
+            serde_json::from_str::<ParsedMedia>(&encoded).unwrap(),
             plain
         );
     }
@@ -3072,12 +2645,6 @@ mod tests {
             assert_eq!(candidate.source.as_deref(), Some(source), "{input}");
             assert_eq!(candidate.video_codec.as_deref(), Some("VP9"));
             assert_eq!(candidate.audio_codec, ["Opus"]);
-            let evidence = candidate
-                .evidence
-                .iter()
-                .find(|item| item.field == EvidenceField::Source)
-                .unwrap();
-            assert_eq!(&input[evidence.span.start..evidence.span.end], marker);
         }
         assert_eq!(first("Example.2020.DivX.AC3D.mkv").audio_codec, ["AC-3"]);
         let movie = first("VHS.2020.1080p.WEB-DL.mkv");
@@ -3088,17 +2655,12 @@ mod tests {
     }
 
     #[test]
-    fn composite_technical_tokens_preserve_normalized_values_and_spans() {
+    fn composite_technical_tokens_produce_normalized_values() {
         for (marker, expected) in [("H.264", "H.264"), ("h.265", "H.265"), ("H_265", "H.265")] {
             let input = format!("Example.2020.1080p.{marker}.mkv");
             let candidate = first(&input);
             assert_eq!(candidate.video_codec.as_deref(), Some(expected));
-            let evidence = candidate
-                .evidence
-                .iter()
-                .find(|item| item.field == EvidenceField::VideoCodec)
-                .unwrap();
-            assert_eq!(&input[evidence.span.start..evidence.span.end], marker);
+
             assert_eq!(
                 first(&format!("Example.{marker}.mkv")).title.as_deref(),
                 Some("Example")
@@ -3109,12 +2671,7 @@ mod tests {
         assert_eq!(candidate.source.as_deref(), Some("Blu-ray"));
         assert_eq!(candidate.resolution.as_deref(), Some("1080p"));
         assert_eq!(candidate.dynamic_range, ["HDR10+"]);
-        let evidence = candidate
-            .evidence
-            .iter()
-            .find(|item| item.field == EvidenceField::DynamicRange)
-            .unwrap();
-        assert_eq!(&input[evidence.span.start..evidence.span.end], "HDR10+");
+
         assert_eq!(
             first("Example.2020.HDR10Plus.mkv").dynamic_range,
             ["HDR10+"]
@@ -3161,7 +2718,7 @@ mod tests {
     }
 
     #[test]
-    fn leading_years_and_season_pack_years_have_separate_title_spans() {
+    fn leading_years_and_season_pack_years_identify_title_and_release_year() {
         for (input, year, season) in [
             ("2020 - Example.1080p.mkv", 2020, None),
             ("2020-Example.1080p.mkv", 2020, None),
@@ -3172,15 +2729,6 @@ mod tests {
             assert_eq!(result.title.as_deref(), Some("Example"), "{input}");
             assert_eq!(result.year, Some(year), "{input}");
             assert_eq!(result.season, season, "{input}");
-            let evidence = result
-                .evidence
-                .iter()
-                .find(|item| item.field == EvidenceField::Title)
-                .unwrap();
-            assert_eq!(
-                clean_title(&input[evidence.span.start..evidence.span.end]).as_deref(),
-                Some("Example")
-            );
         }
     }
 
@@ -3231,7 +2779,7 @@ mod tests {
                 ancestors: vec!["Season IV", "Example.S04.1080p"],
             },
         );
-        assert_eq!(report.candidates[0].season, Some(4));
+        assert_eq!(report.season, Some(4));
     }
 
     #[test]
@@ -3263,22 +2811,11 @@ mod tests {
                 &result.episodes
             };
             assert_eq!(actual, &episodes, "{input}");
-            let evidence: Vec<_> = result
-                .evidence
-                .iter()
-                .filter(|item| {
-                    matches!(
-                        item.field,
-                        EvidenceField::Episode | EvidenceField::AbsoluteEpisode
-                    )
-                })
-                .collect();
-            assert!(evidence.len() >= actual.len());
         }
     }
 
     #[test]
-    fn episode_title_evidence_uses_the_title_boundary() {
+    fn episode_titles_follow_structural_boundaries() {
         for input in [
             "Example.S03E16.Episode.Title.2020.720p.mkv",
             "Example.720p.S03E16.Episode.Title.mkv",
@@ -3287,16 +2824,6 @@ mod tests {
         ] {
             let candidate = first(input);
             assert_eq!(candidate.episode_title.as_deref(), Some("Episode Title"));
-            let evidence = candidate
-                .evidence
-                .iter()
-                .find(|item| item.field == EvidenceField::EpisodeTitle)
-                .unwrap();
-            assert!(evidence.span.start <= evidence.span.end);
-            assert_eq!(
-                clean_title(&input[evidence.span.start..evidence.span.end]),
-                candidate.episode_title
-            );
         }
     }
 
@@ -3575,16 +3102,9 @@ mod tests {
             ancestors: vec!["Example.S01", "series"],
         };
         let report = parse_with_context("ノンテロップED (Ver.3) [BD 1080p].mkv", &context);
-        assert_eq!(report.candidates[0].title.as_deref(), Some("Example"));
-        assert_eq!(report.candidates[0].kind, MediaKind::Extra);
-        assert!(
-            report.candidates[0]
-                .extra
-                .as_ref()
-                .unwrap()
-                .number
-                .is_none()
-        );
+        assert_eq!(report.title.as_deref(), Some("Example"));
+        assert_eq!(report.kind, MediaKind::Extra);
+        assert!(report.extra.as_ref().unwrap().number.is_none());
     }
 
     #[test]
@@ -3607,7 +3127,7 @@ mod tests {
                 ancestors: vec![],
             },
         );
-        assert_eq!(movie.candidates[0].kind, MediaKind::Movie);
+        assert_eq!(movie.kind, MediaKind::Movie);
     }
 
     #[test]
@@ -3618,39 +3138,33 @@ mod tests {
     }
 
     #[test]
-    fn keeps_conflicting_movie_years_as_separate_ranked_candidates() {
+    fn movie_title_years_select_the_release_year() {
         let result = parse("2001.A.Space.Odyssey.1968.1080p.BluRay.x264-GROUP.mkv");
-        assert!(result.candidates.len() >= 2);
-        assert_eq!(result.candidates[0].year, Some(1968));
-        assert_eq!(result.candidates[1].year, Some(2001));
+
+        assert_eq!(result.year, Some(1968));
 
         let movie_title_year = parse("1922.2017.1080p.WEBRip.DD+5.1.x264-playHD.mkv");
-        assert_eq!(
-            movie_title_year.candidates[0].title.as_deref(),
-            Some("1922")
-        );
-        assert_eq!(movie_title_year.candidates[0].year, Some(2017));
-        assert_eq!(movie_title_year.candidates[1].year, Some(1922));
+        assert_eq!(movie_title_year.title.as_deref(), Some("1922"));
+        assert_eq!(movie_title_year.year, Some(2017));
 
         let installment_year = parse("Fear.Street.Part.1.1994.2021.1080p.NF.WEB-DL.mkv");
         assert_eq!(
-            installment_year.candidates[0].title.as_deref(),
+            installment_year.title.as_deref(),
             Some("Fear Street Part 1 1994")
         );
-        assert_eq!(installment_year.candidates[0].year, Some(2021));
-        assert_eq!(installment_year.candidates[1].year, Some(1994));
+        assert_eq!(installment_year.year, Some(2021));
 
         let numbered_installment = parse(
             "Fear.Street.Part.3.1666.2021.1080p.NF.WEB-DL.DDP5.1.Atmos.DV.HDR.H.265-CRFW.mkv",
         );
-        assert_eq!(numbered_installment.candidates[0].kind, MediaKind::Movie);
+        assert_eq!(numbered_installment.kind, MediaKind::Movie);
         assert_eq!(
-            numbered_installment.candidates[0].title.as_deref(),
+            numbered_installment.title.as_deref(),
             Some("Fear Street Part 3 1666")
         );
-        assert_eq!(numbered_installment.candidates[0].year, Some(2021));
-        assert!(numbered_installment.candidates[0].season.is_none());
-        assert!(numbered_installment.candidates[0].episodes.is_empty());
+        assert_eq!(numbered_installment.year, Some(2021));
+        assert!(numbered_installment.season.is_none());
+        assert!(numbered_installment.episodes.is_empty());
     }
 
     #[test]
@@ -3664,7 +3178,7 @@ mod tests {
             ancestors: vec!["A.Miss.Mallard.Mystery.2000.1080p.WEBRip", "series"],
         };
         let episode = parse_with_context("S01E01.Lost.in.the.Amazon.mp4", &context);
-        let candidate = &episode.candidates[0];
+        let candidate = &episode;
         assert_eq!(candidate.title.as_deref(), Some("A Miss Mallard Mystery"));
         assert_eq!(candidate.episodes, vec![1]);
     }
@@ -3675,16 +3189,12 @@ mod tests {
             expected_kind: Some(ExpectedKind::Series),
             ancestors: vec!["The Office", "Season 4", "series"],
         };
-        let episode = parse_with_context("Episode 4 - Kim Kelly Is My Friend.mkv", &context)
-            .candidates
-            .remove(0);
+        let episode = parse_with_context("Episode 4 - Kim Kelly Is My Friend.mkv", &context);
         assert_eq!(episode.kind, MediaKind::Episode);
         assert_eq!(episode.season, Some(4));
         assert_eq!(episode.episodes, vec![4]);
 
-        let compact = parse_with_context("The Office [401] Fun Run.avi", &context)
-            .candidates
-            .remove(0);
+        let compact = parse_with_context("The Office [401] Fun Run.avi", &context);
         assert_eq!(compact.season, Some(4));
         assert_eq!(compact.episodes, vec![1]);
         assert_eq!(compact.episode_title.as_deref(), Some("Fun Run"));
@@ -3702,9 +3212,7 @@ mod tests {
             expected_kind: Some(ExpectedKind::Series),
             ancestors: vec!["Dorohedoro.S02.1080p.CR.WEB-DL", "series"],
         };
-        let inherited = parse_with_context("Dorohedoro - 07 (1080p).mkv", &context)
-            .candidates
-            .remove(0);
+        let inherited = parse_with_context("Dorohedoro - 07 (1080p).mkv", &context);
         assert_eq!(inherited.kind, MediaKind::Episode);
         assert_eq!(inherited.season, Some(2));
         assert_eq!(inherited.episodes, vec![7]);
@@ -3712,10 +3220,6 @@ mod tests {
             inherited.episode_numbering,
             Some(EpisodeNumbering::SeasonEpisode)
         );
-        assert!(inherited.evidence.iter().any(|evidence| {
-            evidence.rule == "season_directory_context"
-                && evidence.source == EvidenceSource::ParentDirectory
-        }));
     }
 
     #[test]
@@ -3767,7 +3271,7 @@ mod tests {
         ];
         for (name, category, title) in cases {
             let report = parse_with_context(name, &context);
-            let result = &report.candidates[0];
+            let result = &report;
             assert_eq!(result.kind, MediaKind::Extra, "{name}");
             assert_eq!(result.title.as_deref(), title, "{name}");
             assert_eq!(result.year, name.contains("2012").then_some(2012), "{name}");
@@ -3778,10 +3282,7 @@ mod tests {
             );
         }
         let numbered = parse_with_context("ノンテロップOP2 [BD 1920x1080 HEVC FLAC].mkv", &context);
-        assert_eq!(
-            numbered.candidates[0].extra.as_ref().unwrap().number,
-            Some(2)
-        );
+        assert_eq!(numbered.extra.as_ref().unwrap().number, Some(2));
     }
 
     #[test]
@@ -3804,7 +3305,7 @@ mod tests {
     }
 
     #[test]
-    fn combines_adjacent_episode_anchors_and_preserves_each_span() {
+    fn combines_adjacent_episode_anchors() {
         let cases = [
             (
                 "Show.Name.S01E02.S01E03.HDTV.XViD.Etc-Group.mkv",
@@ -3828,34 +3329,23 @@ mod tests {
         ];
 
         for (name, season, episodes, episode_title) in cases {
-            let candidate = &parse(name).candidates[0];
+            let candidate = &parse(name);
             assert_eq!(candidate.kind, MediaKind::Episode, "{name}");
             assert_eq!(candidate.season, season, "{name}");
             assert_eq!(candidate.episodes, episodes, "{name}");
             assert_eq!(candidate.episode_title.as_deref(), episode_title, "{name}");
-
-            let evidence: Vec<_> = candidate
-                .evidence
-                .iter()
-                .filter(|item| item.field == EvidenceField::Episode)
-                .collect();
-            assert_eq!(evidence.len(), episodes.len(), "{name}");
-            for (item, episode) in evidence.iter().zip(episodes) {
-                assert_eq!(item.text, episode.to_string(), "{name}");
-                assert!(name[item.span.start..item.span.end].contains(&item.text));
-            }
         }
     }
 
     #[test]
-    fn spaced_season_episode_markers_produce_one_episode_candidate() {
+    fn spaced_season_episode_markers_identify_an_episode() {
         let report =
             parse("SUPERNATURAL - S08 E07 - A LITTLE SLICE OF KEVIN 720P DD5.1 x264 MMI.mkv");
-        assert_eq!(report.candidates.len(), 1);
-        assert_eq!(report.candidates[0].kind, MediaKind::Episode);
-        assert_eq!(report.candidates[0].title.as_deref(), Some("SUPERNATURAL"));
-        assert_eq!(report.candidates[0].season, Some(8));
-        assert_eq!(report.candidates[0].episodes, vec![7]);
+
+        assert_eq!(report.kind, MediaKind::Episode);
+        assert_eq!(report.title.as_deref(), Some("SUPERNATURAL"));
+        assert_eq!(report.season, Some(8));
+        assert_eq!(report.episodes, vec![7]);
     }
 
     #[test]
@@ -3893,40 +3383,34 @@ mod tests {
             ancestors: vec![],
         };
         let compact = parse_with_context("The.Office.S06xE01.avi", &context);
-        assert_eq!(compact.candidates[0].kind, MediaKind::Episode);
-        assert_eq!(compact.candidates[0].season, Some(6));
-        assert_eq!(compact.candidates[0].episodes, vec![1]);
+        assert_eq!(compact.kind, MediaKind::Episode);
+        assert_eq!(compact.season, Some(6));
+        assert_eq!(compact.episodes, vec![1]);
 
         let word_marker = parse_with_context("Naruto Shippuden Episode 366 VOSTFR.avi", &context);
-        assert_eq!(word_marker.candidates[0].kind, MediaKind::Episode);
-        assert_eq!(
-            word_marker.candidates[0].title.as_deref(),
-            Some("Naruto Shippuden")
-        );
-        assert_eq!(word_marker.candidates[0].episodes, vec![366]);
+        assert_eq!(word_marker.kind, MediaKind::Episode);
+        assert_eq!(word_marker.title.as_deref(), Some("Naruto Shippuden"));
+        assert_eq!(word_marker.episodes, vec![366]);
 
         let anime = parse_with_context(
             "[Kaylith] Zankyou no Terror - 04 [480p][B4D4514E].mp4",
             &context,
         );
-        assert_eq!(anime.candidates[0].kind, MediaKind::Episode);
-        assert_eq!(
-            anime.candidates[0].title.as_deref(),
-            Some("Zankyou no Terror")
-        );
-        assert_eq!(anime.candidates[0].absolute_episodes, vec![4]);
+        assert_eq!(anime.kind, MediaKind::Episode);
+        assert_eq!(anime.title.as_deref(), Some("Zankyou no Terror"));
+        assert_eq!(anime.absolute_episodes, vec![4]);
 
         let bracketed = parse("[Group] Zankyou no Terror [04][480p][B4D4514E].mp4");
-        assert_eq!(bracketed.candidates[0].kind, MediaKind::Episode);
-        assert_eq!(bracketed.candidates[0].absolute_episodes, vec![4]);
+        assert_eq!(bracketed.kind, MediaKind::Episode);
+        assert_eq!(bracketed.absolute_episodes, vec![4]);
 
         let x_range = parse_with_context("Show_Name.1x02x03x04.HDTV_XViD_Etc-Group.mkv", &context);
-        assert_eq!(x_range.candidates[0].season, Some(1));
-        assert_eq!(x_range.candidates[0].episodes, vec![2, 3, 4]);
+        assert_eq!(x_range.season, Some(1));
+        assert_eq!(x_range.episodes, vec![2, 3, 4]);
 
         let season_x_range = parse_with_context("Kaamelott - 5x44x45x46.avi", &context);
-        assert_eq!(season_x_range.candidates[0].season, Some(5));
-        assert_eq!(season_x_range.candidates[0].episodes, vec![44, 45, 46]);
+        assert_eq!(season_x_range.season, Some(5));
+        assert_eq!(season_x_range.episodes, vec![44, 45, 46]);
 
         let movie = parse_with_context(
             "Persepolis (2007) [H264+Aac-128(Fr-Eng)+ST(Fr-Eng)+Ind].mkv",
@@ -3935,8 +3419,8 @@ mod tests {
                 ancestors: vec![],
             },
         );
-        assert_eq!(movie.candidates[0].kind, MediaKind::Movie);
-        assert!(movie.candidates[0].episodes.is_empty());
+        assert_eq!(movie.kind, MediaKind::Movie);
+        assert!(movie.episodes.is_empty());
     }
 
     #[test]
@@ -3986,17 +3470,6 @@ mod tests {
             assert_eq!(candidate.kind, MediaKind::Episode);
             assert_eq!(candidate.title.as_deref(), Some("Series Name"));
             assert_eq!(candidate.absolute_episodes, vec![8]);
-            let evidence = candidate
-                .evidence
-                .iter()
-                .find(|evidence| evidence.field == EvidenceField::Title)
-                .unwrap();
-            assert_eq!(evidence.rule, "series_title_before_hyphenated_subtitle");
-            assert_eq!(evidence.text, "Series Name");
-            assert_eq!(
-                &name[evidence.span.start..evidence.span.end],
-                "[Group] Series Name"
-            );
         }
     }
 
@@ -4060,7 +3533,7 @@ mod tests {
                     ancestors: vec![],
                 },
             );
-            let result = &report.candidates[0];
+            let result = &report;
             assert_eq!(result.kind, MediaKind::Extra);
             assert_eq!(
                 result.extra.as_ref().map(|extra| extra.category),
@@ -4090,7 +3563,7 @@ mod tests {
                     ancestors: vec![],
                 },
             );
-            let result = &report.candidates[0];
+            let result = &report;
             assert_eq!(result.kind, MediaKind::Extra);
             assert_eq!(
                 result.extra,
@@ -4130,9 +3603,9 @@ mod tests {
                 ancestors: vec![],
             },
         );
-        assert_eq!(movie.candidates[0].kind, MediaKind::Movie);
+        assert_eq!(movie.kind, MediaKind::Movie);
         assert_eq!(
-            movie.candidates[0].title.as_deref(),
+            movie.title.as_deref(),
             Some("Made in Abyss Movie 3 Fukaki Tamashii no Reimei")
         );
     }
@@ -4146,6 +3619,6 @@ mod tests {
                 ancestors: vec!["series"],
             },
         );
-        assert_eq!(report.candidates[0].title, None);
+        assert_eq!(report.title, None);
     }
 }
