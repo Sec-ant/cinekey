@@ -1,6 +1,6 @@
 [package]
 name = "cinekey"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 rust-version = "1.88"
 description = "Fast parser for movie and TV release names"
@@ -10,6 +10,12 @@ repository = "https://github.com/Sec-ant/cinekey"
 keywords = ["media", "parser", "movies", "television", "cli"]
 categories = ["parser-implementations", "command-line-utilities"]
 include = ["src/**", "benches/**", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE"]
+
+[workspace]
+members = ["crates/cinekey-wasm"]
+default-members = ["."]
+exclude = ["tools/eval"]
+resolver = "3"
 
 [features]
 default = ["cli"]
@@ -32,6 +38,10 @@ serde_json = "1"
 lto = "thin"
 codegen-units = 1
 strip = "symbols"
+
+[profile.dist]
+inherits = "release"
+panic = "abort"
 
 [lints.rust]
 unsafe_code = "forbid"

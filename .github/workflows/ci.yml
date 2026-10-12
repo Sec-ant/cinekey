@@ -19,21 +19,39 @@ jobs:
         run: |
           rustup toolchain install "${{ matrix.toolchain }}" --profile minimal
           rustup default "${{ matrix.toolchain }}"
+          rustup target add wasm32-unknown-unknown
       - name: Check parser and CLI
         run: |
-          cargo test --locked --lib --bins
+          cargo test --locked --workspace --lib --bins
           cargo test --locked --doc
           cargo check --locked --benches
           cargo check --locked --no-default-features --lib
+          cargo check --locked --no-default-features --lib --target wasm32-unknown-unknown
+          cargo check --locked -p cinekey-wasm --target wasm32-unknown-unknown
       - name: Check formatting and lints
         if: matrix.toolchain == 'stable'
         run: |
           rustup component add rustfmt clippy
           cargo fmt --all --check
-          cargo clippy --locked --all-targets -- -D warnings
+          cargo clippy --locked --workspace --all-targets -- -D warnings
+          cargo clippy --locked -p cinekey-wasm --all-targets --target wasm32-unknown-unknown -- -D warnings
           cargo fmt --manifest-path tools/eval/Cargo.toml --all --check
           cargo clippy --locked --manifest-path tools/eval/Cargo.toml --all-targets -- -D warnings
       - name: Check evaluation tools
         if: matrix.toolchain == 'stable'
         run: |
           cargo test --locked --manifest-path tools/eval/Cargo.toml
+      - name: Install Wasm test runner
+        if: matrix.toolchain == 'stable'
+        run: |
+          curl --fail --location --silent --show-error \
+            https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.129/wasm-bindgen-0.2.129-x86_64-unknown-linux-musl.tar.gz \
+            --output "$RUNNER_TEMP/wasm-bindgen.tar.gz"
+          echo "82d12bb940e2d4e72e0d5605387fc1b8ca179044e012b620f0ce4e7440e8320e  $RUNNER_TEMP/wasm-bindgen.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/wasm-bindgen.tar.gz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/wasm-bindgen-0.2.129-x86_64-unknown-linux-musl" >> "$GITHUB_PATH"
+      - name: Test Wasm bindings in Node
+        if: matrix.toolchain == 'stable'
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+        run: cargo test --locked -p cinekey-wasm --lib --target wasm32-unknown-unknown
