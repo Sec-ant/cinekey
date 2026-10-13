@@ -222,14 +222,16 @@ fn context_for_path(input: &str) -> ParseContext<'_> {
 const FIELD_WIDTH: usize = "episode_numbering".len();
 
 fn write_field(out: &mut impl Write, field: &str, value: Option<impl Display>) -> io::Result<()> {
-    write!(out, "{field:<FIELD_WIDTH$}:")?;
     if let Some(value) = value {
-        write!(out, " {value}")?;
+        writeln!(out, "{field:<FIELD_WIDTH$}: {value}")?;
     }
-    writeln!(out)
+    Ok(())
 }
 
 fn write_list(out: &mut impl Write, field: &str, values: &[String]) -> io::Result<()> {
+    if values.is_empty() {
+        return Ok(());
+    }
     write!(out, "{field:<FIELD_WIDTH$}:")?;
     for (index, value) in values.iter().enumerate() {
         write!(out, "{}{value}", if index == 0 { " " } else { ", " })?;
@@ -271,15 +273,19 @@ fn write_human(out: &mut impl Write, media: &ParsedMedia) -> io::Result<()> {
         }),
     )?;
     write_field(out, "episode_title", media.episode_title.as_deref())?;
-    write!(out, "{:<FIELD_WIDTH$}:", "extra")?;
     if let Some(extra) = &media.extra {
         let category = serde_json::to_value(extra.category)?;
-        write!(out, " {}", category.as_str().unwrap_or_default())?;
+        write!(
+            out,
+            "{:<FIELD_WIDTH$}: {}",
+            "extra",
+            category.as_str().unwrap_or_default()
+        )?;
         if let Some(value) = extra.number {
             write!(out, " {value}")?;
         }
+        writeln!(out)?;
     }
-    writeln!(out)?;
     for (field, value) in [
         ("resolution", &media.resolution),
         ("source", &media.source),
@@ -341,19 +347,7 @@ mod tests {
                 "title            : Example\n",
                 "title_annotations: Another Name\n",
                 "year             : 2020\n",
-                "season           :\n",
-                "episodes         :\n",
-                "absolute_episodes:\n",
-                "episode_numbering:\n",
-                "episode_title    :\n",
-                "extra            :\n",
                 "resolution       : 1080p\n",
-                "source           :\n",
-                "video_codec      :\n",
-                "dynamic_range    :\n",
-                "audio_codec      :\n",
-                "audio_channels   :\n",
-                "release_group    :\n",
             )
         );
     }
