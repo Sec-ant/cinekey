@@ -33,18 +33,30 @@ cinekey ./media/*.mkv
 cinekey --kind series 'Episode.03.mkv'
 ```
 
-The default output presents parsed fields over multiple lines, ordered by identification, video metadata, audio metadata, and release group. A blank line separates records:
+The default output presents a fixed set of fields, ordered by identification, video metadata, audio metadata, and release group. Field names are padded to align colons and values; empty values leave a blank value column. A blank line separates records:
 
 ```text
-input: Arrival.2016.1080p.BluRay.mkv
-kind: movie
-title: Arrival
-year: 2016
-resolution: 1080p
-source: Blu-ray
+input            : Arrival.2016.1080p.BluRay.mkv
+kind             : movie
+title            : Arrival
+title_annotations:
+year             : 2016
+season           :
+episodes         :
+absolute_episodes:
+episode_numbering:
+episode_title    :
+extra            :
+resolution       : 1080p
+source           : Blu-ray
+video_codec      :
+dynamic_range    :
+audio_codec      :
+audio_channels   :
+release_group    :
 ```
 
-`--json` emits one compact JSON object per input, with the original `input` and parsed fields at the top level. Both single-input and batch output compose directly with `jq`:
+`--json` emits one compact JSON object per input, with the original `input` and populated parsed fields at the top level. Absent scalar values and empty lists are omitted. Both single-input and batch output compose directly with `jq`:
 
 ```sh
 cinekey --json 'Arrival.2016.1080p.BluRay.mkv' | jq '.title, .year'

@@ -1,6 +1,6 @@
 [package]
 name = "cinekey"
-version = "0.2.6"
+version = "0.2.7"
 edition = "2024"
 rust-version = "1.88"
 description = "Fast parser for movie and TV release names"

@@ -1,9 +1,12 @@
 #![forbid(unsafe_code)]
 
-use cinekey::{ExpectedKind, MediaKind, ParseContext, ParsedMedia, parse_with_context};
+use cinekey::{
+    EpisodeNumbering, ExpectedKind, MediaKind, ParseContext, ParsedMedia, parse_with_context,
+};
 use clap::{Parser, ValueEnum};
-use serde::Serialize;
+use serde::{Serialize, Serializer, ser::SerializeMap};
 use std::{
+    fmt::Display,
     fs::File,
     io::{self, BufRead, Write},
     path::PathBuf,
@@ -49,11 +52,64 @@ impl From<KindArg> for ExpectedKind {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
 struct OutputRecord<'a> {
     input: &'a str,
-    #[serde(flatten)]
     media: &'a ParsedMedia,
+}
+
+impl Serialize for OutputRecord<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let media = self.media;
+        let mut map = serializer.serialize_map(None)?;
+        macro_rules! optional {
+            ($field:ident) => {
+                if let Some(value) = &media.$field {
+                    map.serialize_entry(stringify!($field), value)?;
+                }
+            };
+        }
+        macro_rules! list {
+            ($field:ident) => {
+                if !media.$field.is_empty() {
+                    map.serialize_entry(stringify!($field), &media.$field)?;
+                }
+            };
+        }
+        map.serialize_entry("input", self.input)?;
+        map.serialize_entry("kind", &media.kind)?;
+        optional!(title);
+        list!(title_annotations);
+        optional!(year);
+        optional!(season);
+        list!(episodes);
+        list!(absolute_episodes);
+        optional!(episode_numbering);
+        optional!(episode_title);
+        if let Some(extra) = &media.extra {
+            #[derive(Serialize)]
+            struct ExtraRecord<'a> {
+                category: &'a cinekey::ExtraCategory,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                number: Option<u16>,
+            }
+            map.serialize_entry(
+                "extra",
+                &ExtraRecord {
+                    category: &extra.category,
+                    number: extra.number,
+                },
+            )?;
+        }
+        optional!(resolution);
+        optional!(source);
+        optional!(video_codec);
+        list!(dynamic_range);
+        list!(audio_codec);
+        optional!(audio_channels);
+        optional!(release_group);
+        map.end()
+    }
 }
 
 pub fn run() -> ExitCode {
@@ -135,7 +191,7 @@ fn write_input(
         if !*first {
             out.write_all(b"\n")?;
         }
-        writeln!(out, "input: {input}")?;
+        write_field(out, "input", Some(input))?;
         write_human(out, &media)?;
     }
     *first = false;
@@ -163,6 +219,24 @@ fn context_for_path(input: &str) -> ParseContext<'_> {
     }
 }
 
+const FIELD_WIDTH: usize = "episode_numbering".len();
+
+fn write_field(out: &mut impl Write, field: &str, value: Option<impl Display>) -> io::Result<()> {
+    write!(out, "{field:<FIELD_WIDTH$}:")?;
+    if let Some(value) = value {
+        write!(out, " {value}")?;
+    }
+    writeln!(out)
+}
+
+fn write_list(out: &mut impl Write, field: &str, values: &[String]) -> io::Result<()> {
+    write!(out, "{field:<FIELD_WIDTH$}:")?;
+    for (index, value) in values.iter().enumerate() {
+        write!(out, "{}{value}", if index == 0 { " " } else { ", " })?;
+    }
+    writeln!(out)
+}
+
 fn write_human(out: &mut impl Write, media: &ParsedMedia) -> io::Result<()> {
     let kind = match media.kind {
         MediaKind::Movie => "movie",
@@ -171,62 +245,55 @@ fn write_human(out: &mut impl Write, media: &ParsedMedia) -> io::Result<()> {
         MediaKind::Extra => "extra",
         MediaKind::Unknown => "unknown",
     };
-    writeln!(out, "kind: {kind}")?;
-    if let Some(value) = &media.title {
-        writeln!(out, "title: {value}")?;
-    }
-    if !media.title_annotations.is_empty() {
-        writeln!(
-            out,
-            "title_annotations: {}",
-            media.title_annotations.join(", ")
-        )?;
-    }
-    if let Some(value) = media.year {
-        writeln!(out, "year: {value}")?;
-    }
-    if let Some(value) = media.season {
-        writeln!(out, "season: {value}")?;
-    }
-    if !media.episodes.is_empty() {
-        writeln!(out, "episodes: {:?}", media.episodes)?;
-    }
-    if !media.absolute_episodes.is_empty() {
-        writeln!(out, "absolute_episodes: {:?}", media.absolute_episodes)?;
-    }
-    if let Some(value) = &media.episode_title {
-        writeln!(out, "episode_title: {value}")?;
-    }
+    write_field(out, "kind", Some(kind))?;
+    write_field(out, "title", media.title.as_deref())?;
+    write_list(out, "title_annotations", &media.title_annotations)?;
+    write_field(out, "year", media.year)?;
+    write_field(out, "season", media.season)?;
+    write_field(
+        out,
+        "episodes",
+        (!media.episodes.is_empty()).then_some(format_args!("{:?}", media.episodes)),
+    )?;
+    write_field(
+        out,
+        "absolute_episodes",
+        (!media.absolute_episodes.is_empty())
+            .then_some(format_args!("{:?}", media.absolute_episodes)),
+    )?;
+    write_field(
+        out,
+        "episode_numbering",
+        media.episode_numbering.map(|numbering| match numbering {
+            EpisodeNumbering::SeasonEpisode => "season_episode",
+            EpisodeNumbering::Absolute => "absolute",
+            EpisodeNumbering::SeasonUnspecified => "season_unspecified",
+        }),
+    )?;
+    write_field(out, "episode_title", media.episode_title.as_deref())?;
+    write!(out, "{:<FIELD_WIDTH$}:", "extra")?;
     if let Some(extra) = &media.extra {
         let category = serde_json::to_value(extra.category)?;
-        write!(out, "extra: {}", category.as_str().unwrap_or_default())?;
+        write!(out, " {}", category.as_str().unwrap_or_default())?;
         if let Some(value) = extra.number {
             write!(out, " {value}")?;
         }
-        out.write_all(b"\n")?;
     }
+    writeln!(out)?;
     for (field, value) in [
         ("resolution", &media.resolution),
         ("source", &media.source),
         ("video_codec", &media.video_codec),
     ] {
-        if let Some(value) = value {
-            writeln!(out, "{field}: {value}")?;
-        }
+        write_field(out, field, value.as_deref())?;
     }
-    if !media.dynamic_range.is_empty() {
-        writeln!(out, "dynamic_range: {}", media.dynamic_range.join(", "))?;
-    }
-    if !media.audio_codec.is_empty() {
-        writeln!(out, "audio_codec: {}", media.audio_codec.join(", "))?;
-    }
+    write_list(out, "dynamic_range", &media.dynamic_range)?;
+    write_list(out, "audio_codec", &media.audio_codec)?;
     for (field, value) in [
         ("audio_channels", &media.audio_channels),
         ("release_group", &media.release_group),
     ] {
-        if let Some(value) = value {
-            writeln!(out, "{field}: {value}")?;
-        }
+        write_field(out, field, value.as_deref())?;
     }
     Ok(())
 }
@@ -269,7 +336,25 @@ mod tests {
         write_human(&mut output, &media).unwrap();
         assert_eq!(
             String::from_utf8(output).unwrap(),
-            "kind: movie\ntitle: Example\ntitle_annotations: Another Name\nyear: 2020\nresolution: 1080p\n"
+            concat!(
+                "kind             : movie\n",
+                "title            : Example\n",
+                "title_annotations: Another Name\n",
+                "year             : 2020\n",
+                "season           :\n",
+                "episodes         :\n",
+                "absolute_episodes:\n",
+                "episode_numbering:\n",
+                "episode_title    :\n",
+                "extra            :\n",
+                "resolution       : 1080p\n",
+                "source           :\n",
+                "video_codec      :\n",
+                "dynamic_range    :\n",
+                "audio_codec      :\n",
+                "audio_channels   :\n",
+                "release_group    :\n",
+            )
         );
     }
 
@@ -302,8 +387,8 @@ mod tests {
         )
         .unwrap();
         let output = String::from_utf8(output).unwrap();
-        assert!(output.starts_with("input: #Alive.2020.mkv\nkind: movie\ntitle: #Alive\n"));
-        assert!(output.contains("\n\ninput: Arrival.2016.mkv\n"));
+        assert!(output.starts_with("input            : #Alive.2020.mkv\nkind             : movie\ntitle            : #Alive\n"));
+        assert!(output.contains("\n\ninput            : Arrival.2016.mkv\n"));
     }
 
     #[test]
