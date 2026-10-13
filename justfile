@@ -38,7 +38,7 @@ check: fmt clippy test doc
 build:
     cargo build --locked --release
 
-# Build the distribution CLI with Thin LTO and aborting panics.
+# Build the distribution CLI with full LTO and aborting panics.
 dist:
     cargo build --locked --profile dist
 

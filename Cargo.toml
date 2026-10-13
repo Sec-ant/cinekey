@@ -1,6 +1,6 @@
 [package]
 name = "cinekey"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
 rust-version = "1.88"
 description = "Fast parser for movie and TV release names"
@@ -41,6 +41,7 @@ strip = "symbols"
 
 [profile.dist]
 inherits = "release"
+lto = "fat"
 panic = "abort"
 
 [lints.rust]
