@@ -615,4 +615,7 @@ fn group_anchor(tokens: &[Token<'_>], index: usize, episode_end: Option<usize>) 
         || is_release_year(previous.text)
         || episode_end == Some(previous_index)
         || is_web_dl_suffix(tokens, previous_index)
+        || previous_index
+            .checked_sub(1)
+            .is_some_and(|start| separated_video_codec(tokens, start).is_some())
 }

@@ -37,6 +37,18 @@ fn release_groups_follow_release_anchors_across_file_names() {
             .as_deref(),
         Some("NTb")
     );
+    for codec in ["H.264", "H.265", "h.265", "H-265", "H_265", "H 265"] {
+        for suffix in ["mkv", "chs.ass", "chs&eng.ass", "eng.forced.srt"] {
+            let input = format!("Movie.2024.2160p.WEB-DL.DDP5.1.{codec}-GROUP.{suffix}");
+            let result = parse(&input);
+            assert_eq!(result.release_group.as_deref(), Some("GROUP"), "{input}");
+            assert_eq!(
+                result.video_codec.as_deref(),
+                Some(if codec == "H.264" { "H.264" } else { "H.265" }),
+                "{input}"
+            );
+        }
+    }
     for input in [
         "chs.ass",
         "chs&eng.srt",
@@ -44,6 +56,8 @@ fn release_groups_follow_release_anchors_across_file_names() {
         "Movie - Impossible.chs.srt",
         "Movie.2024.WEB-DL.chs.srt",
         "Movie.2024.DTS-HD.MA.5.1.mkv",
+        "Movie.265-GROUP.chs.ass",
+        "Movie.H.266-GROUP.chs.ass",
         "-GROUP.chs.srt",
     ] {
         assert_eq!(parse(input).release_group, None, "{input}");
