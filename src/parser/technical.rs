@@ -558,22 +558,71 @@ pub(super) fn release_group<'a>(
     let fallback =
         (last.text == suffix && valid_group(suffix) && !is_web_dl_suffix(tokens, last_index))
             .then_some(suffix);
-    if fallback.is_some() {
+    if fallback.is_some()
+        && last_index > 0
+        && last.before == Separator::Dash
+        && tokens[last_index - 1].before != Separator::Dash
+        && !group_start_word(tokens, last_index - 1)
+    {
         return fallback;
     }
+    let component_start = |mut index: usize| {
+        while index > 0
+            && tokens[index].before == Separator::Dash
+            && tokens[index - 1].end + 1 == tokens[index].start
+        {
+            index -= 1;
+        }
+        index.max(1)
+    };
+    if fallback.is_some() {
+        return group_component(
+            stem,
+            tokens,
+            component_start(last_index)..=last_index,
+            episode_end,
+        )
+        .or(fallback);
+    }
+    let mut index = last_index;
+    while index > 0 {
+        let token = &tokens[index];
+        if token.before == Separator::Dash
+            && stem.as_bytes().get(token.start.checked_sub(1)?) == Some(&b'-')
+        {
+            let first_index = component_start(index);
+            if let Some(group) = group_component(stem, tokens, first_index..=index, episode_end) {
+                return Some(group);
+            }
+            index = first_index;
+        }
+        index -= 1;
+    }
+    None
+}
 
-    for (index, token) in tokens.iter().enumerate().skip(1).rev() {
-        if token.before != Separator::Dash
-            || stem.as_bytes().get(token.start.checked_sub(1)?) != Some(&b'-')
+fn group_component<'a>(
+    stem: &'a str,
+    tokens: &[Token<'_>],
+    component: std::ops::RangeInclusive<usize>,
+    episode_end: Option<usize>,
+) -> Option<&'a str> {
+    let end = stem[tokens[*component.end()].start..]
+        .find('.')
+        .map_or(stem.len(), |offset| tokens[*component.end()].start + offset);
+    for index in component {
+        let token = &tokens[index];
+        if !matches!(token.before, Separator::Dash | Separator::Dot)
+            || !matches!(
+                stem.as_bytes().get(token.start.checked_sub(1)?),
+                Some(b'-' | b'.')
+            )
+            || !group_start_word(tokens, index)
             || is_web_dl_suffix(tokens, index)
             || !group_anchor(tokens, index, episode_end)
         {
             continue;
         }
-        let Some(dot_offset) = stem[token.start..].find('.') else {
-            continue;
-        };
-        let end = token.start + dot_offset;
         if let Some(group) = stem.get(token.start..end)
             && valid_group(group)
             && group.len() > 1
@@ -585,12 +634,90 @@ pub(super) fn release_group<'a>(
                 .any(|later| is_technical(later.text))
             && !tokens[index + 1..]
                 .iter()
+                .filter(|later| later.start >= end)
                 .any(|later| later.text.bytes().all(|byte| byte.is_ascii_digit()))
         {
             return Some(group);
         }
     }
-    fallback
+    None
+}
+
+fn group_start_word(tokens: &[Token<'_>], index: usize) -> bool {
+    let text = tokens[index].text;
+    if !text.chars().any(char::is_alphabetic)
+        || is_technical(text)
+        || technical_phrase(tokens, index)
+        || compound_technical(tokens, index)
+        || dimension(text).is_some()
+        || release_language_boundary(tokens, index)
+        || language_code(text)
+        || index > 0
+            && (technical_phrase(tokens, index - 1) || compound_technical(tokens, index - 1))
+    {
+        return false;
+    }
+    let mut buffer = [0u8; 16];
+    let Some(key) = buffer.get_mut(..text.len()) else {
+        return true;
+    };
+    for (output, input) in key.iter_mut().zip(text.bytes()) {
+        *output = input.to_ascii_lowercase();
+    }
+    if matches!(
+        &*key,
+        b"mp2"
+            | b"mp3"
+            | b"mp4"
+            | b"pcm"
+            | b"lpcm"
+            | b"hi10p"
+            | b"internal"
+            | b"int"
+            | b"preair"
+            | b"prooffix"
+            | b"svid"
+            | b"line"
+            | b"hdma"
+            | b"sdh"
+    ) {
+        return false;
+    }
+    !["bit", "bits", "ch", "audio"].iter().any(|unit| {
+        text.get(..text.len().saturating_sub(unit.len()))
+            .is_some_and(|number| {
+                !number.is_empty()
+                    && number.bytes().all(|byte| byte.is_ascii_digit())
+                    && text[number.len()..].eq_ignore_ascii_case(unit)
+            })
+    })
+}
+
+fn compound_technical(tokens: &[Token<'_>], index: usize) -> bool {
+    let Some(first) = tokens.get(index) else {
+        return false;
+    };
+    let Some(second) = tokens.get(index + 1) else {
+        return false;
+    };
+    if !matches!(
+        second.before,
+        Separator::Dash | Separator::Dot | Separator::Underscore | Separator::Space
+    ) {
+        return false;
+    }
+    let mut buffer = [0u8; 16];
+    let Some(key) = buffer.get_mut(..first.text.len() + second.text.len()) else {
+        return false;
+    };
+    for (output, input) in key
+        .iter_mut()
+        .zip(first.text.bytes().chain(second.text.bytes()))
+    {
+        *output = input.to_ascii_lowercase();
+    }
+    matches!(&*key, b"dtsx" | b"dtshd" | b"aaclc")
+        || std::str::from_utf8(key).is_ok_and(is_technical)
 }
 
 fn valid_group(text: &str) -> bool {
@@ -617,5 +744,5 @@ fn group_anchor(tokens: &[Token<'_>], index: usize, episode_end: Option<usize>) 
         || is_web_dl_suffix(tokens, previous_index)
         || previous_index
             .checked_sub(1)
-            .is_some_and(|start| separated_video_codec(tokens, start).is_some())
+            .is_some_and(|start| compound_technical(tokens, start))
 }
