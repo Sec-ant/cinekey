@@ -33,7 +33,7 @@ cinekey ./media/*.mkv
 cinekey --kind series 'Episode.03.mkv'
 ```
 
-The default output presents parsed fields over multiple lines. A blank line separates records:
+The default output presents parsed fields over multiple lines, ordered by identification, video metadata, audio metadata, and release group. A blank line separates records:
 
 ```text
 input: Arrival.2016.1080p.BluRay.mkv

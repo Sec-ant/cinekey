@@ -209,8 +209,6 @@ fn write_human(out: &mut impl Write, media: &ParsedMedia) -> io::Result<()> {
         ("resolution", &media.resolution),
         ("source", &media.source),
         ("video_codec", &media.video_codec),
-        ("audio_channels", &media.audio_channels),
-        ("release_group", &media.release_group),
     ] {
         if let Some(value) = value {
             writeln!(out, "{field}: {value}")?;
@@ -221,6 +219,14 @@ fn write_human(out: &mut impl Write, media: &ParsedMedia) -> io::Result<()> {
     }
     if !media.audio_codec.is_empty() {
         writeln!(out, "audio_codec: {}", media.audio_codec.join(", "))?;
+    }
+    for (field, value) in [
+        ("audio_channels", &media.audio_channels),
+        ("release_group", &media.release_group),
+    ] {
+        if let Some(value) = value {
+            writeln!(out, "{field}: {value}")?;
+        }
     }
     Ok(())
 }
