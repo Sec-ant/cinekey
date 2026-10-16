@@ -20,6 +20,7 @@ mod lexer;
 mod metadata;
 mod model;
 mod parser;
+mod vocabulary;
 
 pub use enumset::EnumSet;
 pub use lexer::{Separator, Token, tokenize};

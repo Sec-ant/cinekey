@@ -23,9 +23,48 @@ pub struct Token<'a> {
     pub bracketed: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ReleaseToken<'a> {
+    pub text: &'a str,
+    pub start: usize,
+    pub end: usize,
+    pub before: Separator,
+    pub bracketed: bool,
+    pub word: Option<crate::vocabulary::Word>,
+}
+
+impl ReleaseToken<'_> {
+    pub(crate) fn is_technical(self) -> bool {
+        self.word.is_some_and(crate::vocabulary::Word::boundary)
+    }
+}
+
+impl<'a> From<Token<'a>> for ReleaseToken<'a> {
+    fn from(token: Token<'a>) -> Self {
+        Self {
+            text: token.text,
+            start: token.start,
+            end: token.end,
+            before: token.before,
+            bracketed: token.bracketed,
+            word: crate::vocabulary::classify(token.text),
+        }
+    }
+}
+
+const _: () = assert!(size_of::<ReleaseToken<'_>>() == size_of::<Token<'_>>());
+
+pub(crate) fn release_tokens(input: &str) -> Vec<ReleaseToken<'_>> {
+    tokenize_with(input, ReleaseToken::from)
+}
+
 /// Split a release name into Unicode-aware word tokens that borrow the input.
 /// Punctuation remains represented by each token's preceding separator and span.
 pub fn tokenize(input: &str) -> Vec<Token<'_>> {
+    tokenize_with(input, |token| token)
+}
+
+fn tokenize_with<'a, T>(input: &'a str, mut make: impl FnMut(Token<'a>) -> T) -> Vec<T> {
     let mut tokens = Vec::with_capacity((input.len() / 6).min(32));
     let mut token_start = None;
     let mut before = Separator::Start;
@@ -38,13 +77,13 @@ pub fn tokenize(input: &str) -> Vec<Token<'_>> {
         }
 
         if let Some(start) = token_start.take() {
-            tokens.push(Token {
+            tokens.push(make(Token {
                 text: &input[start..offset],
                 start,
                 end: offset,
                 before,
                 bracketed: bracket_depth > 0,
-            });
+            }));
         }
 
         before = match ch {
@@ -66,13 +105,13 @@ pub fn tokenize(input: &str) -> Vec<Token<'_>> {
     }
 
     if let Some(start) = token_start {
-        tokens.push(Token {
+        tokens.push(make(Token {
             text: &input[start..],
             start,
             end: input.len(),
             before,
             bracketed: bracket_depth > 0,
-        });
+        }));
     }
     tokens
 }

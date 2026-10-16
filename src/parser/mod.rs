@@ -1,5 +1,5 @@
 use crate::{
-    lexer::{Token, tokenize},
+    lexer::{ReleaseToken as Token, release_tokens as tokenize},
     model::{
         EpisodeNumbering, ExpectedKind, ExtraCategory, ExtraInfo, MediaKind, ParseContext,
         ParsedMedia,
@@ -13,7 +13,7 @@ mod technical;
 use episodes::{episode_markers, season_directory_number, separator_gap_is_dash};
 use technical::{
     ascii_one_of, ascii_starts_with, episode_technical_token, fill_technical,
-    first_technical_token, is_release_year, is_technical, leading_content_token, release_group,
+    first_technical_token, is_release_year, leading_content_token, release_group,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -584,7 +584,7 @@ fn extra_marker(
                 .iter()
                 .enumerate()
                 .skip(boundary + source_width)
-                .find_map(|(index, token)| is_technical(token.text).then_some(index))
+                .find_map(|(index, token)| token.is_technical().then_some(index))
                 .unwrap_or(tokens.len())
         } else {
             boundary
@@ -907,7 +907,7 @@ fn episode_title(
 }
 
 fn filename_stem(input: &str) -> (&str, usize) {
-    let start = input.rfind(['/', '\\']).map_or(0, |i| i + 1);
+    let start = memchr::memrchr2(b'/', b'\\', input.as_bytes()).map_or(0, |i| i + 1);
     let name = &input[start..];
     let Some(dot) = name.rfind('.') else {
         return (name, name.len());

@@ -1,5 +1,5 @@
 use crate::{
-    lexer::{Separator, Token},
+    lexer::{ReleaseToken as Token, Separator},
     model::MediaKind,
 };
 
@@ -24,7 +24,7 @@ pub(super) fn episode_technical_token(
 ) -> Option<usize> {
     let start = boundary?;
     if start > episode_end + 1
-        && metadata::edition_word(tokens[start].text)
+        && metadata::edition_word(&tokens[start])
         && tokens[episode_end + 1..start]
             .iter()
             .any(|token| !is_release_year(token.text))
@@ -42,9 +42,9 @@ fn technical_from(tokens: &[Token<'_>], start: usize, episode_title: bool) -> Op
         .iter()
         .enumerate()
         .skip(content_start.max(start))
-        .filter(|(_, token)| !episode_title || !metadata::edition_word(token.text))
+        .filter(|(_, token)| !episode_title || !metadata::edition_word(token))
         .find_map(|(index, token)| {
-            let technical = is_technical(token.text)
+            let technical = token.is_technical()
                 && technical_word_context(tokens, index)
                 && !(index == content_start
                     && !token.bracketed
@@ -68,7 +68,7 @@ fn technical_from(tokens: &[Token<'_>], start: usize, episode_title: bool) -> Op
                     ))
                 && (!token.text.eq_ignore_ascii_case("web")
                     || tokens.get(index + 1).is_some_and(|next| {
-                        next.text.eq_ignore_ascii_case("dl") || is_technical(next.text)
+                        next.text.eq_ignore_ascii_case("dl") || next.is_technical()
                     }));
             (technical
                 || technical_phrase(tokens, index)
@@ -98,7 +98,7 @@ fn technical_word_context(tokens: &[Token<'_>], index: usize) -> bool {
     }
     token.bracketed
         || tokens.get(index + 1).is_some_and(|next| {
-            is_technical(next.text)
+            next.is_technical()
                 || ascii_one_of(
                     next.text,
                     &["multi", "french", "german", "vostfr", "truefrench"],
@@ -130,7 +130,7 @@ fn technical_phrase(tokens: &[Token<'_>], index: usize) -> bool {
         Some(b'c') => {
             word.eq_ignore_ascii_case("complete")
                 && next.is_some_and(|text| {
-                    is_technical(text)
+                    tokens[index + 1].is_technical()
                         || parse_s_token(text).is_some()
                         || ascii_one_of(text, &["multi", "season", "seasons"])
                 })
@@ -205,7 +205,7 @@ fn release_language_boundary(tokens: &[Token<'_>], index: usize) -> bool {
     language
         && (standalone
             || tokens.get(index + 1).is_some_and(|next| {
-                is_technical(next.text) || ascii_one_of(next.text, &["dl", "dubbed"])
+                next.is_technical() || ascii_one_of(next.text, &["dl", "dubbed"])
             }))
 }
 
@@ -229,19 +229,7 @@ fn language_code(text: &str) -> bool {
 }
 
 pub(super) fn is_technical(token: &str) -> bool {
-    if token.get(..3).is_some_and(|prefix| {
-        prefix.eq_ignore_ascii_case("dd+") || prefix.eq_ignore_ascii_case("ddp")
-    }) {
-        return true;
-    }
-    let mut buffer = [0u8; 16];
-    let Some(key) = buffer.get_mut(..token.len()) else {
-        return false;
-    };
-    for (output, input) in key.iter_mut().zip(token.bytes()) {
-        *output = input.to_ascii_lowercase();
-    }
-    metadata::word(key, token).is_some_and(|word| word.boundary)
+    crate::vocabulary::classify(token).is_some_and(crate::vocabulary::Word::boundary)
 }
 
 pub(super) fn is_release_year(token: &str) -> bool {
@@ -288,7 +276,7 @@ pub(super) fn fill_technical(
         }
         let key = &*key;
         if metadata_area
-            && let Some(marker) = metadata::recognize(tokens, i, key)
+            && let Some(marker) = metadata::recognize(tokens, i)
             && marker.end <= group_start
         {
             marker.value.apply(candidate);
@@ -578,9 +566,7 @@ fn group_component<'a>(
             && !is_technical(group)
             && group.chars().any(char::is_alphabetic)
             && !group.contains(['[', ']', '(', ')'])
-            && !tokens[index + 1..]
-                .iter()
-                .any(|later| is_technical(later.text))
+            && !tokens[index + 1..].iter().any(|later| later.is_technical())
             && !tokens[index + 1..]
                 .iter()
                 .filter(|later| later.start >= end)
@@ -598,7 +584,7 @@ fn group_component<'a>(
 fn group_start_word(tokens: &[Token<'_>], index: usize) -> bool {
     let text = tokens[index].text;
     if !text.chars().any(char::is_alphabetic)
-        || is_technical(text)
+        || tokens[index].is_technical()
         || technical_phrase(tokens, index)
         || compound_technical(tokens, index)
         || dimension(text).is_some()
@@ -616,7 +602,7 @@ fn group_start_word(tokens: &[Token<'_>], index: usize) -> bool {
     for (output, input) in key.iter_mut().zip(text.bytes()) {
         *output = input.to_ascii_lowercase();
     }
-    if metadata::recognize(tokens, index, key).is_some()
+    if metadata::recognize(tokens, index).is_some()
         || matches!(
             &*key,
             b"mp2"
@@ -689,12 +675,13 @@ fn group_anchor(tokens: &[Token<'_>], index: usize, episode_end: Option<usize>) 
         return false;
     };
     let previous = &tokens[previous_index];
-    is_technical(previous.text)
+    previous.word.is_some_and(crate::vocabulary::Word::boundary)
         || is_release_year(previous.text)
         || episode_end == Some(previous_index)
         || is_web_dl_suffix(tokens, previous_index)
         || previous_index
             .checked_sub(1)
             .is_some_and(|start| compound_technical(tokens, start))
-        || metadata::at(tokens, previous_index).is_some_and(|marker| marker.end == previous.end)
+        || metadata::recognize(tokens, previous_index)
+            .is_some_and(|marker| marker.end == previous.end)
 }

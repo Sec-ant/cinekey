@@ -1,9 +1,9 @@
 use crate::{
-    lexer::{Separator, Token},
+    lexer::{ReleaseToken as Token, Separator},
     model::{EpisodeNumbering, ExpectedKind},
 };
 
-use super::technical::{ascii_one_of, dimension, is_release_year, is_technical};
+use super::technical::{ascii_one_of, dimension, is_release_year};
 use super::{filename_stem, token_group_start};
 
 #[derive(Debug)]
@@ -51,9 +51,7 @@ pub(super) fn episode_markers(
     let mut consumed_until = None;
     let anime_prefix = expected.is_none()
         && name.starts_with('[')
-        && tokens
-            .first()
-            .is_some_and(|token| !is_technical(token.text));
+        && tokens.first().is_some_and(|token| !token.is_technical());
     for (i, token) in tokens.iter().enumerate() {
         if consumed_until.is_some_and(|last| i <= last) {
             continue;

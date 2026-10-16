@@ -131,17 +131,17 @@ const { parse } = require("./pkg/nodejs/cinekey.js");
 const movie = parse("Arrival.2016.1080p.BluRay.mkv");
 ```
 
-Ancestor names are ordered nearest first. Context fields are optional; invalid field types and kind values produce JavaScript errors. Bindings serialize metadata directly into JavaScript values. The adapter's dependencies belong to its own crate; the Rust library uses Serde and compact enum sets.
+Ancestor names are ordered nearest first. Context fields are optional; invalid field types and kind values produce JavaScript errors. Bindings serialize metadata directly into JavaScript values. The adapter's dependencies belong to its own crate; the Rust library uses Serde, compact enum sets, and byte search.
 
 ## Parsing and resource use
 
-- A Unicode-aware lexer borrows token slices and records separators, bracket state, and byte offsets. Structural recognizers combine these tokens with a static technical vocabulary.
+- A Unicode-aware lexer borrows token slices and records separators, bracket state, and byte offsets. Internal release tokens retain compact word classifications for reuse by structural and technical recognizers. These classifications fit within the token layout on native and Wasm targets, and tokenization uses one shared scanner.
 - Episode grammar handles compact and spaced season/episode markers, explicit `E`/`EP` sequences, inclusive ranges, lists, revisions, season packs, and anchored anime absolute numbers. Season words support numeric and canonical Roman values.
 - Title boundaries use structural, year, and technical anchors. Titles retain accents, installment numbers, inline parenthetical text, and complete movie subtitles. Trailing parenthesized qualifiers populate `title_annotations`.
 - Technical recognizers share a word and phrase vocabulary for boundaries, services, editions, release flags, and audio profiles. They normalize source and codec aliases, compound release phrases, split codec spellings, HDR markers, and audio layouts. Bonus-content recognizers identify common supplement categories and ordinals.
 - Release-group recognition uses structural release markers and dot or dash boundaries. Group names retain internal hyphens and end at the next dot, so other filename segments can follow them across file extensions.
 - Path context supplies missing titles and seasons from structurally recognizable ancestors on the input's own path. Explicit filename structure participates in selection alongside the supplied hints.
-- The library and CLI forbid `unsafe`. Parsing uses borrowed tokens, bounded stack keys, static dispatch, and one returned metadata record. Service identifiers and metadata bitsets occupy inline storage and serialize through static labels. The CLI streams input lists and output records; memory follows the argument list, current input, ancestor names, and current parse result.
+- The library and CLI forbid `unsafe`. Parsing uses borrowed tokens, bounded stack keys, static dispatch, and one returned metadata record. Service identifiers and metadata bitsets occupy inline storage and serialize through static labels. Byte search locates path separators while preserving UTF-8 filename boundaries. The CLI streams input lists and output records; memory follows the argument list, current input, ancestor names, and current parse result.
 
 The `cli` feature supplies the binary, argument parsing, and JSON output. Library consumers can use `default-features = false` for the parser and its Serde data model. Modules separate the public model, lexer, structural selection, episode grammar, and technical vocabulary. Release builds use Thin LTO, one code-generation unit, and symbol stripping with optimization level 3. The `dist` profile uses full LTO and aborting panics for distribution executables. Wasm packaging removes debugging names and producer metadata. Both profiles keep the parser at optimization level 3.
 
