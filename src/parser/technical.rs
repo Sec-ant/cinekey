@@ -1,10 +1,10 @@
 use crate::{
     lexer::{Separator, Token},
-    model::{MediaKind, ParsedMedia},
+    model::MediaKind,
 };
 
 use super::episodes::{parse_s_token, parse_x_format};
-use super::title_before;
+use super::{metadata, title_before};
 
 pub(super) fn leading_content_token(tokens: &[Token<'_>]) -> usize {
     tokens
@@ -14,11 +14,35 @@ pub(super) fn leading_content_token(tokens: &[Token<'_>]) -> usize {
 }
 
 pub(super) fn first_technical_token(tokens: &[Token<'_>]) -> Option<usize> {
+    technical_from(tokens, 0, false)
+}
+
+pub(super) fn episode_technical_token(
+    tokens: &[Token<'_>],
+    boundary: Option<usize>,
+    episode_end: usize,
+) -> Option<usize> {
+    let start = boundary?;
+    if start > episode_end + 1
+        && metadata::edition_word(tokens[start].text)
+        && tokens[episode_end + 1..start]
+            .iter()
+            .any(|token| !is_release_year(token.text))
+    {
+        technical_from(tokens, start, true)
+    } else {
+        boundary
+    }
+}
+
+#[inline]
+fn technical_from(tokens: &[Token<'_>], start: usize, episode_title: bool) -> Option<usize> {
     let content_start = leading_content_token(tokens);
     tokens
         .iter()
         .enumerate()
-        .skip(content_start)
+        .skip(content_start.max(start))
+        .filter(|(_, token)| !episode_title || !metadata::edition_word(token.text))
         .find_map(|(index, token)| {
             let technical = is_technical(token.text)
                 && technical_word_context(tokens, index)
@@ -99,23 +123,9 @@ fn technical_phrase(tokens: &[Token<'_>], index: usize) -> bool {
                 && next.is_some_and(|text| text.eq_ignore_ascii_case("light"))
                 || separated_video_codec(tokens, index).is_some()
         }
-        Some(b'd') => {
-            if !ascii_one_of(word, &["director", "directors"]) {
-                return false;
-            }
-            next.is_some_and(|text| text.eq_ignore_ascii_case("cut"))
-                || next.is_some_and(|text| text.eq_ignore_ascii_case("s"))
-                    && tokens
-                        .get(index + 2)
-                        .is_some_and(|token| token.text.eq_ignore_ascii_case("cut"))
-        }
-        Some(b't') => {
-            word.eq_ignore_ascii_case("theatrical")
-                && next.is_some_and(|text| ascii_one_of(text, &["edition", "cut"]))
-        }
-        Some(b'u') => {
-            word.eq_ignore_ascii_case("ultimate")
-                && next.is_some_and(|text| ascii_one_of(text, &["collector", "collectors"]))
+        Some(b'd' | b't' | b'u') => {
+            ascii_one_of(word, &["director", "directors", "theatrical", "ultimate"])
+                && metadata::phrase(tokens, index)
         }
         Some(b'c') => {
             word.eq_ignore_ascii_case("complete")
@@ -133,6 +143,7 @@ fn technical_phrase(tokens: &[Token<'_>], index: usize) -> bool {
                     .take(7)
                     .any(|token| ascii_one_of(token.text, &["hou", "hsbs", "sbs"]))
         }
+        Some(b'i' | b'm' | b'n' | b'a' | b'p') => metadata::service_prefix(tokens, index),
         _ => false,
     }
 }
@@ -230,100 +241,7 @@ pub(super) fn is_technical(token: &str) -> bool {
     for (output, input) in key.iter_mut().zip(token.bytes()) {
         *output = input.to_ascii_lowercase();
     }
-    matches!(
-        &*key,
-        b"480p"
-            | b"480i"
-            | b"576p"
-            | b"576i"
-            | b"720p"
-            | b"1080p"
-            | b"1080i"
-            | b"1440p"
-            | b"2160p"
-            | b"4320p"
-            | b"4k"
-            | b"8k"
-            | b"bluray"
-            | b"brrip"
-            | b"bdrip"
-            | b"bdmux"
-            | b"brmux"
-            | b"bdripmux"
-            | b"brripmux"
-            | b"bd"
-            | b"web"
-            | b"webdl"
-            | b"webrip"
-            | b"hdtv"
-            | b"pdtv"
-            | b"sdtv"
-            | b"tvrip"
-            | b"hdrip"
-            | b"hdtvrip"
-            | b"hdcam"
-            | b"camrip"
-            | b"hdlight"
-            | b"mhd"
-            | b"dvdrip"
-            | b"dvdr"
-            | b"dvdscr"
-            | b"vhs"
-            | b"pal"
-            | b"ntsc"
-            | b"dvd"
-            | b"remux"
-            | b"x264"
-            | b"h264"
-            | b"avc"
-            | b"x265"
-            | b"h265"
-            | b"hevc"
-            | b"av1"
-            | b"vp9"
-            | b"xvid"
-            | b"divx"
-            | b"hdr"
-            | b"hdr10"
-            | b"hdr10plus"
-            | b"dv"
-            | b"dovi"
-            | b"dolbyvision"
-            | b"sdr"
-            | b"atmos"
-            | b"truehd"
-            | b"flac"
-            | b"aac"
-            | b"opus"
-            | b"dts"
-            | b"dd"
-            | b"ddp"
-            | b"ac3"
-            | b"ac3d"
-            | b"eac3"
-            | b"dual"
-            | b"proper"
-            | b"repack"
-            | b"remastered"
-            | b"unrated"
-            | b"extended"
-            | b"directorscut"
-            | b"uncut"
-            | b"limited"
-            | b"convert"
-            | b"nfofix"
-            | b"subbed"
-            | b"imax"
-            | b"10bit"
-            | b"8bit"
-            | b"nf"
-            | b"amzn"
-            | b"atvp"
-            | b"dsnp"
-            | b"hmax"
-            | b"hulu"
-            | b"cr"
-    )
+    metadata::word(key, token).is_some_and(|word| word.boundary)
 }
 
 pub(super) fn is_release_year(token: &str) -> bool {
@@ -335,17 +253,30 @@ pub(super) fn is_release_year(token: &str) -> bool {
 }
 
 pub(super) fn fill_technical(
-    candidate: &mut ParsedMedia,
+    candidate: &mut super::Candidate,
     name: &str,
     tokens: &[Token<'_>],
     first_tech: Option<usize>,
-    group: Option<&str>,
+    group: Option<Group<'_>>,
 ) {
+    let metadata_start = if candidate.media.kind == MediaKind::Movie {
+        candidate.title_span.map(|span| span.end)
+    } else {
+        first_tech
+            .and_then(|index| tokens.get(index))
+            .map(|token| token.start)
+    }
+    .unwrap_or(name.len());
+    let group_start = group.map_or(name.len(), |group| group.start);
+    let candidate = &mut candidate.media;
     if let Some(value) = group {
-        candidate.release_group = Some(value.to_owned());
+        candidate.release_group = Some(value.text.to_owned());
     }
     for (i, token) in tokens.iter().enumerate() {
-        if !token.bracketed && first_tech.is_some_and(|start| i < start) {
+        let before_technical = !token.bracketed && first_tech.is_some_and(|start| i < start);
+        let metadata_area =
+            (token.bracketed || token.start >= metadata_start) && token.start < group_start;
+        if before_technical && !metadata_area {
             continue;
         }
         let text = token.text;
@@ -356,6 +287,15 @@ pub(super) fn fill_technical(
             *output = input.to_ascii_lowercase();
         }
         let key = &*key;
+        if metadata_area
+            && let Some(marker) = metadata::recognize(tokens, i, key)
+            && marker.end <= group_start
+        {
+            marker.value.apply(candidate);
+        }
+        if before_technical {
+            continue;
+        }
         let combined_resolution = key
             .strip_prefix(b"br")
             .and_then(|_| text.get(2..))
@@ -544,12 +484,18 @@ fn resolution(text: &str) -> Option<&'static str> {
     .find(|known| text.eq_ignore_ascii_case(known))
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Group<'a> {
+    pub text: &'a str,
+    pub start: usize,
+}
+
 pub(super) fn release_group<'a>(
     name: &'a str,
     tokens: &[Token<'_>],
     stem_end: usize,
     episode_end: Option<usize>,
-) -> Option<&'a str> {
+) -> Option<Group<'a>> {
     let stem = name.get(..stem_end)?;
     let dash = stem.rfind('-')?;
     let suffix = stem[dash + 1..].trim();
@@ -557,7 +503,10 @@ pub(super) fn release_group<'a>(
     let last = &tokens[last_index];
     let fallback =
         (last.text == suffix && valid_group(suffix) && !is_web_dl_suffix(tokens, last_index))
-            .then_some(suffix);
+            .then_some(Group {
+                text: suffix,
+                start: last.start,
+            });
     if fallback.is_some()
         && last_index > 0
         && last.before == Separator::Dash
@@ -606,7 +555,7 @@ fn group_component<'a>(
     tokens: &[Token<'_>],
     component: std::ops::RangeInclusive<usize>,
     episode_end: Option<usize>,
-) -> Option<&'a str> {
+) -> Option<Group<'a>> {
     let end = stem[tokens[*component.end()].start..]
         .find('.')
         .map_or(stem.len(), |offset| tokens[*component.end()].start + offset);
@@ -637,7 +586,10 @@ fn group_component<'a>(
                 .filter(|later| later.start >= end)
                 .any(|later| later.text.bytes().all(|byte| byte.is_ascii_digit()))
         {
-            return Some(group);
+            return Some(Group {
+                text: group,
+                start: token.start,
+            });
         }
     }
     None
@@ -664,23 +616,22 @@ fn group_start_word(tokens: &[Token<'_>], index: usize) -> bool {
     for (output, input) in key.iter_mut().zip(text.bytes()) {
         *output = input.to_ascii_lowercase();
     }
-    if matches!(
-        &*key,
-        b"mp2"
-            | b"mp3"
-            | b"mp4"
-            | b"pcm"
-            | b"lpcm"
-            | b"hi10p"
-            | b"internal"
-            | b"int"
-            | b"preair"
-            | b"prooffix"
-            | b"svid"
-            | b"line"
-            | b"hdma"
-            | b"sdh"
-    ) {
+    if metadata::recognize(tokens, index, key).is_some()
+        || matches!(
+            &*key,
+            b"mp2"
+                | b"mp3"
+                | b"mp4"
+                | b"pcm"
+                | b"lpcm"
+                | b"hi10p"
+                | b"preair"
+                | b"svid"
+                | b"line"
+                | b"hdma"
+                | b"sdh"
+        )
+    {
         return false;
     }
     !["bit", "bits", "ch", "audio"].iter().any(|unit| {
@@ -745,4 +696,5 @@ fn group_anchor(tokens: &[Token<'_>], index: usize, episode_end: Option<usize>) 
         || previous_index
             .checked_sub(1)
             .is_some_and(|start| compound_technical(tokens, start))
+        || metadata::at(tokens, previous_index).is_some_and(|marker| marker.end == previous.end)
 }

@@ -81,6 +81,7 @@ impl Serialize for OutputRecord<'_> {
         optional!(title);
         list!(title_annotations);
         optional!(year);
+        list!(edition);
         optional!(season);
         list!(episodes);
         list!(absolute_episodes);
@@ -103,10 +104,13 @@ impl Serialize for OutputRecord<'_> {
         }
         optional!(resolution);
         optional!(source);
+        optional!(streaming_service);
         optional!(video_codec);
         list!(dynamic_range);
         list!(audio_codec);
+        list!(audio_profile);
         optional!(audio_channels);
+        list!(release_flags);
         optional!(release_group);
         map.end()
     }
@@ -228,13 +232,18 @@ fn write_field(out: &mut impl Write, field: &str, value: Option<impl Display>) -
     Ok(())
 }
 
-fn write_list(out: &mut impl Write, field: &str, values: &[String]) -> io::Result<()> {
-    if values.is_empty() {
+fn write_list<T: Display>(
+    out: &mut impl Write,
+    field: &str,
+    values: impl IntoIterator<Item = T>,
+) -> io::Result<()> {
+    let mut values = values.into_iter();
+    let Some(first) = values.next() else {
         return Ok(());
-    }
-    write!(out, "{field:<FIELD_WIDTH$}:")?;
-    for (index, value) in values.iter().enumerate() {
-        write!(out, "{}{value}", if index == 0 { " " } else { ", " })?;
+    };
+    write!(out, "{field:<FIELD_WIDTH$}: {first}")?;
+    for value in values {
+        write!(out, ", {value}")?;
     }
     writeln!(out)
 }
@@ -251,6 +260,7 @@ fn write_human(out: &mut impl Write, media: &ParsedMedia) -> io::Result<()> {
     write_field(out, "title", media.title.as_deref())?;
     write_list(out, "title_annotations", &media.title_annotations)?;
     write_field(out, "year", media.year)?;
+    write_list(out, "edition", media.edition)?;
     write_field(out, "season", media.season)?;
     write_field(
         out,
@@ -286,21 +296,17 @@ fn write_human(out: &mut impl Write, media: &ParsedMedia) -> io::Result<()> {
         }
         writeln!(out)?;
     }
-    for (field, value) in [
-        ("resolution", &media.resolution),
-        ("source", &media.source),
-        ("video_codec", &media.video_codec),
-    ] {
+    for (field, value) in [("resolution", &media.resolution), ("source", &media.source)] {
         write_field(out, field, value.as_deref())?;
     }
+    write_field(out, "streaming_service", media.streaming_service)?;
+    write_field(out, "video_codec", media.video_codec.as_deref())?;
     write_list(out, "dynamic_range", &media.dynamic_range)?;
     write_list(out, "audio_codec", &media.audio_codec)?;
-    for (field, value) in [
-        ("audio_channels", &media.audio_channels),
-        ("release_group", &media.release_group),
-    ] {
-        write_field(out, field, value.as_deref())?;
-    }
+    write_list(out, "audio_profile", media.audio_profile)?;
+    write_field(out, "audio_channels", media.audio_channels.as_deref())?;
+    write_list(out, "release_flags", media.release_flags)?;
+    write_field(out, "release_group", media.release_group.as_deref())?;
     Ok(())
 }
 

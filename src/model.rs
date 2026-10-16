@@ -1,3 +1,4 @@
+use crate::{AudioProfile, Edition, EnumSet, ReleaseFlag, StreamingService};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -67,6 +68,8 @@ pub struct ParsedMedia {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub title_annotations: Vec<String>,
     pub year: Option<u16>,
+    #[serde(default, skip_serializing_if = "EnumSet::is_empty")]
+    pub edition: EnumSet<Edition>,
     pub season: Option<u16>,
     pub episodes: Vec<u16>,
     pub absolute_episodes: Vec<u16>,
@@ -75,10 +78,15 @@ pub struct ParsedMedia {
     pub extra: Option<ExtraInfo>,
     pub resolution: Option<String>,
     pub source: Option<String>,
+    pub streaming_service: Option<StreamingService>,
     pub video_codec: Option<String>,
     pub dynamic_range: Vec<String>,
     pub audio_codec: Vec<String>,
+    #[serde(default, skip_serializing_if = "EnumSet::is_empty")]
+    pub audio_profile: EnumSet<AudioProfile>,
     pub audio_channels: Option<String>,
+    #[serde(default, skip_serializing_if = "EnumSet::is_empty")]
+    pub release_flags: EnumSet<ReleaseFlag>,
     pub release_group: Option<String>,
 }
 

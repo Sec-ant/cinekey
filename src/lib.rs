@@ -17,10 +17,13 @@
 //! ```
 
 mod lexer;
+mod metadata;
 mod model;
 mod parser;
 
+pub use enumset::EnumSet;
 pub use lexer::{Separator, Token, tokenize};
+pub use metadata::{AudioProfile, Edition, ReleaseFlag, StreamingService};
 pub use model::{
     EpisodeNumbering, ExpectedKind, ExtraCategory, ExtraInfo, MediaKind, ParseContext, ParsedMedia,
 };

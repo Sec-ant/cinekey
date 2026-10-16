@@ -7,12 +7,13 @@ use crate::{
 };
 
 mod episodes;
+mod metadata;
 mod technical;
 
 use episodes::{episode_markers, season_directory_number, separator_gap_is_dash};
 use technical::{
-    ascii_one_of, ascii_starts_with, fill_technical, first_technical_token, is_release_year,
-    is_technical, leading_content_token, release_group,
+    ascii_one_of, ascii_starts_with, episode_technical_token, fill_technical,
+    first_technical_token, is_release_year, is_technical, leading_content_token, release_group,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -116,7 +117,7 @@ fn parse_internal(
     let (name, extension_offset) = filename_stem(input);
     let tokens = tokenize(name);
     let mut candidates = Vec::with_capacity(1);
-    let tech_index = first_technical_token(&tokens);
+    let mut tech_index = first_technical_token(&tokens);
     let extra = extra_marker(name, &tokens, tech_index, expected);
     let extra_boundary = extra.as_ref().map(|(index, start, _)| {
         if tokens[*index].bracketed {
@@ -133,6 +134,9 @@ fn parse_internal(
         season_hint,
         extra_boundary,
     );
+    if let Some(marker) = markers.last().filter(|marker| !marker.is_pack) {
+        tech_index = episode_technical_token(&tokens, tech_index, marker.last_token_index);
+    }
     let group = release_group(
         name,
         &tokens,
@@ -206,7 +210,7 @@ fn parse_internal(
             candidate.media.episode_title = Some(value);
         }
         candidate.score += expected_score(expected, ExpectedKind::Series);
-        fill_technical(&mut candidate.media, name, &tokens, tech_index, group);
+        fill_technical(&mut candidate, name, &tokens, tech_index, group);
 
         candidates.push(candidate);
     }
@@ -245,7 +249,7 @@ fn parse_internal(
         candidate.media.season = marker.season;
 
         candidate.score += expected_score(expected, ExpectedKind::Series);
-        fill_technical(&mut candidate.media, name, &tokens, tech_index, group);
+        fill_technical(&mut candidate, name, &tokens, tech_index, group);
 
         candidates.push(candidate);
     }
@@ -320,7 +324,7 @@ fn parse_internal(
                         12i32.saturating_sub((tech.saturating_sub(index) as i32) * 2);
                 }
             }
-            fill_technical(&mut candidate.media, name, &tokens, tech_index, group);
+            fill_technical(&mut candidate, name, &tokens, tech_index, group);
 
             candidates.push(candidate);
         }
@@ -353,7 +357,7 @@ fn parse_internal(
             });
         }
         candidate.score += expected_score(expected, ExpectedKind::Series);
-        fill_technical(&mut candidate.media, name, &tokens, tech_index, group);
+        fill_technical(&mut candidate, name, &tokens, tech_index, group);
 
         candidates.push(candidate);
     }
@@ -361,7 +365,7 @@ fn parse_internal(
     if candidates.is_empty() {
         let mut candidate = empty_candidate(MediaKind::Unknown, 0);
         candidate.media.title = title_before(name, &tokens, tech_index.unwrap_or(tokens.len()));
-        fill_technical(&mut candidate.media, name, &tokens, tech_index, group);
+        fill_technical(&mut candidate, name, &tokens, tech_index, group);
 
         candidates.push(candidate);
     }
@@ -956,6 +960,7 @@ fn empty_candidate(kind: MediaKind, score: i32) -> Candidate {
             title: None,
             title_annotations: Vec::new(),
             year: None,
+            edition: Default::default(),
             season: None,
             episodes: Vec::new(),
             absolute_episodes: Vec::new(),
@@ -964,10 +969,13 @@ fn empty_candidate(kind: MediaKind, score: i32) -> Candidate {
             extra: None,
             resolution: None,
             source: None,
+            streaming_service: None,
             video_codec: None,
             dynamic_range: Vec::new(),
             audio_codec: Vec::new(),
+            audio_profile: Default::default(),
             audio_channels: None,
+            release_flags: Default::default(),
             release_group: None,
         },
         score,
