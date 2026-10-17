@@ -17,36 +17,12 @@ ignore_conventional_commits = true
 owner = "Sec-ant"
 repo = "cinekey"
 
+[bot.releases]
+enabled = true
+pull_request.title = "chore(release): v$version"
+
 [[workflows]]
 name = "change"
 
 [[workflows.steps]]
 type = "CreateChangeFile"
-
-[[workflows]]
-name = "prepare-release"
-
-[[workflows.steps]]
-type = "Command"
-command = "git switch -C knope/release"
-
-[[workflows.steps]]
-type = "PrepareRelease"
-
-[[workflows.steps]]
-type = "Command"
-command = "git commit -m 'chore(release): v$version'"
-
-[[workflows.steps]]
-type = "Command"
-command = "git push --force-with-lease --set-upstream origin knope/release"
-
-[[workflows.steps]]
-type = "CreatePullRequest"
-base = "main"
-
-[workflows.steps.title]
-template = "chore(release): v$version"
-
-[workflows.steps.body]
-template = "Merge this PR to publish cinekey $version to crates.io, npm, and GitHub Releases.\n\n$changelog"

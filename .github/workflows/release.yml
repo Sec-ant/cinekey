@@ -1,8 +1,8 @@
 name: Release
 
 on:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       tag:
@@ -267,9 +267,6 @@ jobs:
           fi
           draft=$(gh release view "$TAG" --json isDraft --jq .isDraft)
           echo "draft=$draft" >> "$GITHUB_OUTPUT"
-          if [[ "$draft" == true ]]; then
-            gh release upload "$TAG" dist/* --clobber
-          fi
       - name: Check registry version
         id: registry
         shell: bash
@@ -331,6 +328,8 @@ jobs:
               exit 1
               ;;
           esac
+      - name: Upload release artifacts
+        run: gh release upload "$TAG" dist/* --clobber
       - name: Publish GitHub Release
         if: steps.release.outputs.draft == 'true'
         run: gh release edit "$TAG" --draft=false

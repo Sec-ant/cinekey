@@ -35,5 +35,7 @@ Write release notes that explain the observable change, with migration guidance
 for breaking changes. Maintenance changes that affect only development can be
 committed directly.
 
-After changes reach `main`, CI maintains a Release PR with the next version and
-changelog. Merging that PR publishes the release through all distribution channels.
+The [Knope Bot GitHub App](https://github.com/apps/knope-bot) is installed for this
+repository. After changes reach `main`, it maintains a Release PR with the next
+version and changelog. Merging that PR creates a GitHub Release and starts the
+Actions workflow that builds artifacts and publishes to crates.io and npm.
