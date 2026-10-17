@@ -229,22 +229,23 @@ jobs:
         id: registry
         shell: bash
         run: |
-          status=$(curl --silent --show-error --location --retry 3 \
-            --output "$RUNNER_TEMP/crate-version.json" --write-out '%{http_code}' \
-            "https://crates.io/api/v1/crates/cinekey/$VERSION")
-          case "$status" in
-            404) echo "published=false" >> "$GITHUB_OUTPUT" ;;
-            200)
-              curl --fail --location --silent --show-error --retry 3 \
-                "https://static.crates.io/crates/cinekey/cinekey-$VERSION.crate" \
-                --output "$RUNNER_TEMP/published.crate"
-              tar -xzOf "$RUNNER_TEMP/published.crate" "cinekey-$VERSION/.cargo_vcs_info.json" \
-                | jq --exit-status --arg sha "$COMMIT" '.git.sha1 == $sha and .git.dirty != true'
-              jq --exit-status '.version.yanked == false' "$RUNNER_TEMP/crate-version.json"
-              echo "published=true" >> "$GITHUB_OUTPUT"
-              ;;
-            *) cat "$RUNNER_TEMP/crate-version.json"; exit 1 ;;
-          esac
+          curl --fail --location --silent --show-error --retry 3 \
+            --user-agent "cinekey-release (https://github.com/$GH_REPO)" \
+            https://index.crates.io/ci/ne/cinekey --output "$RUNNER_TEMP/crate-index.jsonl"
+          if jq --slurp --exit-status --arg version "$VERSION" \
+            'any(.[]; .vers == $version)' "$RUNNER_TEMP/crate-index.jsonl" >/dev/null; then
+            jq --slurp --exit-status --arg version "$VERSION" \
+              '.[] | select(.vers == $version) | .yanked == false' "$RUNNER_TEMP/crate-index.jsonl"
+            curl --fail --location --silent --show-error --retry 3 \
+              --user-agent "cinekey-release (https://github.com/$GH_REPO)" \
+              "https://static.crates.io/crates/cinekey/cinekey-$VERSION.crate" \
+              --output "$RUNNER_TEMP/published.crate"
+            tar -xzOf "$RUNNER_TEMP/published.crate" "cinekey-$VERSION/.cargo_vcs_info.json" \
+              | jq --exit-status --arg sha "$COMMIT" '.git.sha1 == $sha and .git.dirty != true'
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Install Rust
         if: steps.registry.outputs.published != 'true'
         run: |
