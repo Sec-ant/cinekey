@@ -1,4 +1,10 @@
 # Changelog
+## 0.4.4 (2026-10-17)
+
+### Fixes
+
+- Distribute one standalone `cinekey` executable per platform (`cinekey.exe` on Windows).
+
 ## 0.4.3 (2026-10-17)
 
 ### Features
