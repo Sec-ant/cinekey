@@ -7,7 +7,7 @@ Rust 1.88 or newer is required. Licensed under MIT.
 ## Install
 
 ```sh
-cargo install --git https://github.com/Sec-ant/cinekey --locked --profile dist cinekey
+cargo install cinekey --locked --profile dist
 ```
 
 From a local checkout, `just install` also installs `ck`, a hard link to the same executable:
@@ -22,7 +22,7 @@ For a library dependency:
 
 ```toml
 [dependencies]
-cinekey = { git = "https://github.com/Sec-ant/cinekey", default-features = false }
+cinekey = { version = "0.3", default-features = false }
 ```
 
 
