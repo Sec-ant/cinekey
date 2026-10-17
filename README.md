@@ -10,15 +10,10 @@ Rust 1.88 or newer is required. Licensed under MIT.
 cargo install --git https://github.com/Sec-ant/cinekey --locked --profile dist cinekey
 ```
 
-From a local checkout, install `cinekey` and its short name `ck`:
+From a local checkout, `just install` also installs `ck`, a hard link to the same executable:
 
 ```sh
 just install
-```
-
-`ck` is a hard link to the same executable. `just build` and `just dist` create both names in their output directories; `just install` installs both names, and `just uninstall` removes them. Alias management preserves unrelated commands. Both names accept the same arguments and produce the same parsed records:
-
-```sh
 ck --help
 ck --json 'Arrival.2016.1080p.BluRay.mkv'
 ```
@@ -41,7 +36,7 @@ cinekey ./media/*.mkv
 cinekey --kind series 'Episode.03.mkv'
 ```
 
-The default output presents populated fields, ordered by identification, video metadata, audio metadata, and release group. Field names are padded to align colons and values. A blank line separates records:
+The default output shows populated fields:
 
 ```text
 input            : Arrival.2016.1080p.BluRay.mkv
@@ -59,7 +54,7 @@ cinekey --json 'Arrival.2016.1080p.BluRay.mkv' | jq '.title, .year'
 cinekey --json ./media/*.mkv | jq -r '[.input, .title, .year] | @tsv'
 ```
 
-`--from-file` reads one input per line from a list file; `-` reads stdin. Blank lines are skipped, and repeated names retain their input order. Positional inputs are processed first, followed by the list. List input streams through a reusable line buffer and one result.
+`--from-file` reads one input per line from a list file; `-` reads stdin. Blank lines are skipped. Positional inputs are processed first, followed by the list in its original order.
 
 ```sh
 cinekey --from-file names.txt --json
