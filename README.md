@@ -10,10 +10,17 @@ Rust 1.88 or newer is required. Licensed under MIT.
 cargo install --git https://github.com/Sec-ant/cinekey --locked --profile dist cinekey
 ```
 
-From a local checkout:
+From a local checkout, install `cinekey` and its short name `ck`:
 
 ```sh
 just install
+```
+
+`ck` is a hard link to the same executable. `just build` and `just dist` create both names in their output directories; `just install` installs both names, and `just uninstall` removes them. Alias management preserves unrelated commands. Both names accept the same arguments and produce the same parsed records:
+
+```sh
+ck --help
+ck --json 'Arrival.2016.1080p.BluRay.mkv'
 ```
 
 For a library dependency:
@@ -22,6 +29,7 @@ For a library dependency:
 [dependencies]
 cinekey = { git = "https://github.com/Sec-ant/cinekey", default-features = false }
 ```
+
 
 ## CLI
 

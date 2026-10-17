@@ -34,17 +34,20 @@ doc:
 # Run the project's quality checks.
 check: fmt clippy test doc
 
-# Build the release CLI.
+# Build the release CLI and its ck hard link.
 build:
     cargo build --locked --release
+    bash scripts/alias.sh install target/release/cinekey
 
-# Build the distribution CLI with full LTO and aborting panics.
+# Build the distribution CLI and its ck hard link.
 dist:
     cargo build --locked --profile dist
+    bash scripts/alias.sh install target/dist/cinekey
 
-# Install the Cargo-managed CLI.
+# Install the Cargo-managed CLI and its ck hard link.
 install:
     cargo install --locked --path . --profile dist
+    cinekey_bin=$(command -v cinekey) && bash scripts/alias.sh install "$cinekey_bin"
 
 # Build Wasm, JavaScript glue, and TypeScript declarations for web or nodejs.
 wasm js_target="web":
@@ -61,8 +64,9 @@ wasm-check:
 wasm-test:
     cargo test --locked -p cinekey-wasm --lib --target wasm32-unknown-unknown
 
-# Uninstall the Cargo-managed CLI.
+# Remove the ck hard link and the Cargo-managed CLI.
 uninstall:
+    if cinekey_bin=$(command -v cinekey 2>/dev/null); then bash scripts/alias.sh uninstall "$cinekey_bin"; fi
     cargo uninstall cinekey
 
 # Run the representative release benchmark.
