@@ -218,7 +218,7 @@ Commit the generated `.changeset/*.md` file with the implementation. Use `patch`
 
 The [Knope Bot GitHub App](https://github.com/apps/knope-bot) manages the `knope/release` branch and its Release PR. When changes reach `main`, it combines pending changes, synchronizes Cargo versions and lockfiles, and updates `CHANGELOG.md`. CI runs on the Release PR. Rust, CLI, and npm share one release version; the npm manifest derives its version from Cargo during packaging.
 
-Merge the Release PR to publish. Knope Bot creates the `v<version>` tag and GitHub Release from the changelog. The published release triggers Actions at that tag. The workflow checks the version, runs CI, and builds CLI archives for x86-64 and ARM64 Linux (GNU and musl), macOS, and Windows, plus browser and Node Wasm packages. Builds use the `dist` profile.
+Merge the Release PR to publish. Actions prepares the `v<version>` tag at the merged commit and starts the release workflow at that tag. The workflow checks the version, runs CI, and builds CLI archives for x86-64 and ARM64 Linux (GNU and musl), macOS, and Windows, plus browser and Node Wasm packages. Builds use the `dist` profile.
 
 After all checks and builds succeed, the workflow uploads the archives, npm tarball, and `SHA256SUMS` to GitHub Releases and publishes the crate and npm package through Trusted Publishing. Both registries bind `Sec-ant/cinekey` to `release.yml`. npm uses GitHub OIDC and generates provenance automatically. Prerelease npm versions use the `next` dist-tag.
 

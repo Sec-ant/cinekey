@@ -1,8 +1,9 @@
 name: Release
 
 on:
-  release:
-    types: [published]
+  pull_request:
+    types: [closed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       tag:
@@ -19,6 +20,37 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  start:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.merged == true &&
+      github.head_ref == 'knope/release' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          persist-credentials: false
+      - name: Tag and start release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          COMMIT: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          version=$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "cinekey") | .version')
+          tag="v$version"
+          gh api --method POST "repos/$GH_REPO/git/refs" \
+            -f "ref=refs/tags/$tag" -f "sha=$COMMIT" || {
+              git fetch origin "refs/tags/$tag:refs/tags/$tag"
+              test "$(git rev-parse "$tag^{commit}")" = "$COMMIT"
+            }
+          gh workflow run release.yml --ref "$tag" --field "tag=$tag"
+
   check:
     needs: prepare
     uses: ./.github/workflows/ci.yml
@@ -26,6 +58,7 @@ jobs:
       ref: ${{ needs.prepare.outputs.commit }}
 
   prepare:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.metadata.outputs.version }}

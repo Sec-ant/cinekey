@@ -37,5 +37,5 @@ committed directly.
 
 The [Knope Bot GitHub App](https://github.com/apps/knope-bot) is installed for this
 repository. After changes reach `main`, it maintains a Release PR with the next
-version and changelog. Merging that PR creates a GitHub Release and starts the
-Actions workflow that builds artifacts and publishes to crates.io and npm.
+version and changelog. Merging that PR starts Actions, which tags the merged
+commit, builds artifacts, and publishes to crates.io, npm, and GitHub Releases.
