@@ -8,6 +8,8 @@ Rust 1.88 or newer is required. Licensed under MIT.
 
 ## Install
 
+Prebuilt CLI archives for Linux, macOS, and Windows are available from [GitHub Releases](https://github.com/Sec-ant/cinekey/releases/latest). Each archive includes `cinekey` and `ck` (`.exe` on Windows).
+
 ```sh
 cargo install cinekey --locked --profile dist
 ```
@@ -24,7 +26,7 @@ For a library dependency:
 
 ```toml
 [dependencies]
-cinekey = { version = "0.3", default-features = false }
+cinekey = { version = "0.4", default-features = false }
 ```
 
 ## CLI
@@ -107,6 +109,8 @@ Optional scalar fields use `Option`. Editions, release flags, and audio profiles
 
 ## WebAssembly
 
+Browser and Node packages are available as `wasm-web` and `wasm-nodejs` archives on [GitHub Releases](https://github.com/Sec-ant/cinekey/releases/latest). Each package contains JavaScript bindings, Wasm, TypeScript declarations, and a package manifest.
+
 The Rust library supports `wasm32-unknown-unknown` with `default-features = false`. The `cinekey-wasm` workspace package provides browser and Node bindings over the same parser. `parse` and `parseWithContext` return plain JavaScript objects with the fields above, nullable scalar values, and native arrays. Generated TypeScript declarations describe both inputs and results.
 
 From a local checkout, install the Wasm Rust target and `wasm-bindgen-cli` 0.2.129:
@@ -182,3 +186,17 @@ just clean
 The dependency-free release benchmark parses six representative names one million times, alternating plain parsing and ancestor context. The separate Rust package at `tools/eval` prepares public fixtures, scores identification results, exports parser output, and measures corpus throughput with pinned Hunch and Oleoo versions. Saved local inputs and references stay in ignored development directories.
 
 The Rust API follows [Microsoft's Pragmatic Rust Guidelines](https://microsoft.github.io/rust-guidelines/) through explicit safety policy, typed interfaces, documented examples, formatting, and static lint checks.
+
+## Releasing
+
+Set the package versions, update the lockfiles, and commit the changes on `main`. Then run:
+
+```sh
+just release
+```
+
+This pushes the commit and its annotated `v<version>` tag atomically. The release workflow checks the tag against the crate version, runs CI, and builds CLI archives for x86-64 and ARM64 Linux (GNU and musl), macOS, and Windows, plus browser and Node Wasm packages. Builds use the `dist` profile.
+
+After all checks and builds succeed, the workflow uploads the archives and `SHA256SUMS` to a draft GitHub Release, publishes the crate through [crates.io Trusted Publishing](https://crates.io/docs/trusted-publishing), and publishes the GitHub Release. The trusted publisher binds `Sec-ant/cinekey` to `release.yml`.
+
+The workflow also supports manual runs that retain build artifacts for seven days. A run on a branch builds artifacts; a run on a version tag completes the release. Failed runs can be rerun for the same tag; an existing crate version is checked against the tag's commit.

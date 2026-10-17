@@ -93,7 +93,7 @@ dependencies = [
 
 [[package]]
 name = "cinekey"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "enumset",
  "memchr",
@@ -102,7 +102,7 @@ dependencies = [
 
 [[package]]
 name = "cinekey-eval"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "caseless",
  "cinekey",

@@ -85,3 +85,19 @@ eval +args:
 # Reclaim shared Rust build artifacts.
 clean:
     cargo clean
+
+# Publish the committed package version through the tag-triggered release workflow.
+release:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    test "$(git branch --show-current)" = main
+    test -z "$(git status --porcelain)"
+    version=$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "cinekey") | .version')
+    tag="v$version"
+    if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
+        test "$(git cat-file -t "refs/tags/$tag")" = tag
+        test "$(git rev-parse "$tag^{commit}")" = "$(git rev-parse HEAD)"
+    else
+        git tag -a "$tag" -m "cinekey $version"
+    fi
+    git push --atomic origin HEAD "refs/tags/$tag"
