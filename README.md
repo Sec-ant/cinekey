@@ -2,7 +2,7 @@
 
 A Rust library and CLI for parsing movie and television release names, with a focus on Scene/P2P releases from PT trackers. Each input produces one record of identification fields and technical metadata.
 
-[crates.io](https://crates.io/crates/cinekey) · [API documentation](https://docs.rs/cinekey)
+[crates.io](https://crates.io/crates/cinekey) · [npm](https://www.npmjs.com/package/cinekey) · [API documentation](https://docs.rs/cinekey)
 
 Rust 1.88 or newer is required. Licensed under MIT.
 
@@ -109,23 +109,18 @@ Optional scalar fields use `Option`. Editions, release flags, and audio profiles
 
 ## WebAssembly
 
-Browser and Node packages are available as `wasm-web` and `wasm-nodejs` archives on [GitHub Releases](https://github.com/Sec-ant/cinekey/releases/latest). Each package contains JavaScript bindings, Wasm, TypeScript declarations, and a package manifest.
+The [npm package](https://www.npmjs.com/package/cinekey) includes browser and Node bindings, Wasm, and TypeScript declarations:
+
+```sh
+npm install cinekey
+```
 
 The Rust library supports `wasm32-unknown-unknown` with `default-features = false`. The `cinekey-wasm` workspace package provides browser and Node bindings over the same parser. `parse` and `parseWithContext` return plain JavaScript objects with the fields above, nullable scalar values, and native arrays. Generated TypeScript declarations describe both inputs and results.
 
-From a local checkout, install the Wasm Rust target and `wasm-bindgen-cli` 0.2.129:
-
-```sh
-rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version 0.2.129 --locked
-just wasm
-just wasm nodejs
-```
-
-`just wasm` writes a browser ES module, Wasm binary, and TypeScript declarations to `pkg/web/`. Initialize the module once, then call the synchronous parser:
+In browsers, initialize the ES module once, then call the synchronous parser:
 
 ```js
-import init, { parse, parseWithContext } from "./pkg/web/cinekey.js";
+import init, { parse, parseWithContext } from "cinekey/web";
 
 await init();
 const movie = parse("Arrival.2016.1080p.BluRay.mkv");
@@ -135,14 +130,33 @@ const episode = parseWithContext("E02.mkv", {
 });
 ```
 
-`just wasm nodejs` writes a CommonJS package to `pkg/nodejs/` with synchronous initialization:
+In Node.js, both ESM and CommonJS load the parser synchronously:
 
 ```js
-const { parse } = require("./pkg/nodejs/cinekey.js");
+import { parse } from "cinekey";
+const movie = parse("Arrival.2016.1080p.BluRay.mkv");
+```
+
+```js
+const { parse } = require("cinekey");
 const movie = parse("Arrival.2016.1080p.BluRay.mkv");
 ```
 
 Ancestor names are ordered nearest first. Context fields are optional; invalid field types and kind values produce JavaScript errors. Bindings serialize metadata directly into JavaScript values. The adapter's dependencies belong to its own crate; the Rust library uses Serde, compact enum sets, and byte search.
+
+The root entry selects Node bindings in Node.js and browser bindings in other environments. `cinekey/web` and `cinekey/nodejs` select an explicit target. The Wasm files are exported as `cinekey/web/cinekey_bg.wasm` and `cinekey/nodejs/cinekey_bg.wasm` for asset handling and custom initialization. [GitHub Releases](https://github.com/Sec-ant/cinekey/releases/latest) also provide separate `wasm-web` and `wasm-nodejs` archives and the npm tarball.
+
+For local builds, install the Wasm Rust target and `wasm-bindgen-cli` 0.2.129:
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.129 --locked
+just wasm
+just wasm nodejs
+just npm-pack
+```
+
+`just wasm` writes browser bindings to `pkg/web/`; `just wasm nodejs` writes Node bindings to `pkg/nodejs/`. `just npm-pack` builds both targets, derives the npm version from Cargo, and writes `dist/cinekey-<version>.tgz`.
 
 ## Parsing and resource use
 
@@ -174,6 +188,7 @@ just build
 just dist
 just install
 just wasm
+just npm-pack
 just wasm-check
 just wasm-test
 just bench
@@ -197,6 +212,6 @@ just release
 
 This pushes the commit and its annotated `v<version>` tag atomically. The release workflow checks the tag against the crate version, runs CI, and builds CLI archives for x86-64 and ARM64 Linux (GNU and musl), macOS, and Windows, plus browser and Node Wasm packages. Builds use the `dist` profile.
 
-After all checks and builds succeed, the workflow uploads the archives and `SHA256SUMS` to a draft GitHub Release, publishes the crate through [crates.io Trusted Publishing](https://crates.io/docs/trusted-publishing), and publishes the GitHub Release. The trusted publisher binds `Sec-ant/cinekey` to `release.yml`.
+After all checks and builds succeed, the workflow uploads the archives, npm tarball, and `SHA256SUMS` to a draft GitHub Release, publishes the crate and npm package through Trusted Publishing, and publishes the GitHub Release. Both registries bind `Sec-ant/cinekey` to `release.yml`. npm uses GitHub OIDC and generates provenance automatically. Prerelease npm versions use the `next` dist-tag.
 
-The workflow also supports manual runs with an optional version tag. An empty tag builds branch artifacts; a version tag builds and publishes that release. Build artifacts remain available for seven days. All jobs use the same source commit. Failed runs can be rerun for the same tag; an existing crate version is checked against the tag's commit.
+The workflow also supports manual runs with an optional version tag. An empty tag builds branch artifacts; a version tag builds and publishes that release. Build artifacts remain available for seven days. All jobs use the same source commit. Failed runs can be rerun for the same tag; existing registry versions are checked against the tag's commit.

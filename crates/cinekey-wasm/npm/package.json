@@ -1,0 +1,46 @@
+{
+  "name": "cinekey",
+  "description": "Fast WebAssembly parser for movie and TV release names",
+  "type": "module",
+  "main": "./nodejs/cinekey.js",
+  "module": "./web/cinekey.js",
+  "types": "./nodejs/cinekey.d.ts",
+  "exports": {
+    ".": {
+      "node": {
+        "types": "./nodejs/cinekey.d.ts",
+        "default": "./nodejs/cinekey.js"
+      },
+      "default": {
+        "types": "./web/cinekey.d.ts",
+        "default": "./web/cinekey.js"
+      }
+    },
+    "./web": {
+      "types": "./web/cinekey.d.ts",
+      "default": "./web/cinekey.js"
+    },
+    "./nodejs": {
+      "types": "./nodejs/cinekey.d.ts",
+      "default": "./nodejs/cinekey.js"
+    },
+    "./web/cinekey_bg.wasm": "./web/cinekey_bg.wasm",
+    "./nodejs/cinekey_bg.wasm": "./nodejs/cinekey_bg.wasm"
+  },
+  "files": ["web", "nodejs"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sec-ant/cinekey.git"
+  },
+  "homepage": "https://github.com/Sec-ant/cinekey",
+  "bugs": {
+    "url": "https://github.com/Sec-ant/cinekey/issues"
+  },
+  "keywords": ["media", "parser", "movies", "television", "wasm"],
+  "author": "Ze-Zheng Wu",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

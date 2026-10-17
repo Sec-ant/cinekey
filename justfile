@@ -54,6 +54,10 @@ wasm js_target="web":
     cargo build --locked --profile dist -p cinekey-wasm --target wasm32-unknown-unknown
     wasm-bindgen --target {{js_target}} --remove-name-section --remove-producers-section --out-name cinekey --out-dir pkg/{{js_target}} target/wasm32-unknown-unknown/dist/cinekey_wasm.wasm
 
+# Build both Wasm bindings and package them for npm.
+npm-pack: (wasm "web") (wasm "nodejs")
+    version=$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "cinekey") | .version') && bash scripts/npm-package.sh "$version" "$(git rev-parse HEAD)"
+
 # Check the Rust library and JavaScript adapter for the Wasm target.
 wasm-check:
     cargo check --locked --no-default-features --lib --target wasm32-unknown-unknown
