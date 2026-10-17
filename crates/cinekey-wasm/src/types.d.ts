@@ -33,6 +33,8 @@ export interface ParsedMedia {
   source: string | null;
   streaming_service: StreamingService | null;
   video_codec: string | null;
+  /** Video sample bit depth indicated by release markers; omitted when undetermined. */
+  video_bit_depth?: number;
   /** Whether release markers indicate video transcoding; omitted when undetermined. */
   video_transcoded?: boolean;
   dynamic_range: string[];

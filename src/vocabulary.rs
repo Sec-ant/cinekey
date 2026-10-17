@@ -70,6 +70,7 @@ pub(crate) enum Word {
     Technical,
     VideoCodec(VideoCodec),
     VideoEncoder(VideoCodec),
+    VideoBitDepth(u8),
     Phrase(Phrase),
     Service(StreamingService),
     ServiceBoundary(StreamingService),
@@ -86,6 +87,7 @@ impl Word {
             Self::Technical
                 | Self::VideoCodec(_)
                 | Self::VideoEncoder(_)
+                | Self::VideoBitDepth(_)
                 | Self::ServiceBoundary(_)
                 | Self::EditionBoundary(_)
                 | Self::FlagBoundary(_)
@@ -94,7 +96,11 @@ impl Word {
 
     pub(crate) fn attribute(self) -> Option<Attribute> {
         Some(match self {
-            Self::Technical | Self::VideoCodec(_) | Self::VideoEncoder(_) | Self::Phrase(_) => {
+            Self::Technical
+            | Self::VideoCodec(_)
+            | Self::VideoEncoder(_)
+            | Self::VideoBitDepth(_)
+            | Self::Phrase(_) => {
                 return None;
             }
             Self::Service(value) | Self::ServiceBoundary(value) => Attribute::Service(value),
@@ -138,6 +144,9 @@ pub(crate) fn word(key: &[u8], original: &str) -> Option<Word> {
         b"vp9" => return Some(Word::VideoCodec(V::Vp9)),
         b"xvid" => return Some(Word::VideoEncoder(V::Xvid)),
         b"divx" => return Some(Word::VideoEncoder(V::Divx)),
+        b"8bit" | b"8bits" => return Some(Word::VideoBitDepth(8)),
+        b"10bit" | b"10bits" | b"hi10p" => return Some(Word::VideoBitDepth(10)),
+        b"12bit" | b"12bits" => return Some(Word::VideoBitDepth(12)),
         b"ma" => return Some(Word::Phrase(Phrase::Ma)),
         b"master" => return Some(Word::Phrase(Phrase::Master)),
         b"hra" | b"hr" => return Some(Word::Phrase(Phrase::HighResolution)),
@@ -156,7 +165,7 @@ pub(crate) fn word(key: &[u8], original: &str) -> Option<Word> {
         | b"hdlight" | b"mhd" | b"dvdrip" | b"dvdr" | b"dvdscr" | b"vhs" | b"pal" | b"ntsc"
         | b"dvd" | b"hdr" | b"hdr10" | b"hdr10plus" | b"dv" | b"dovi" | b"dolbyvision" | b"sdr"
         | b"atmos" | b"truehd" | b"flac" | b"aac" | b"opus" | b"dts" | b"dd" | b"ddp" | b"ac3"
-        | b"ac3d" | b"eac3" | b"dual" | b"convert" | b"10bit" | b"8bit" => {
+        | b"ac3d" | b"eac3" | b"dual" | b"convert" => {
             return Some(Word::Technical);
         }
         b"nf" => (S(Netflix), true),

@@ -80,6 +80,9 @@ pub struct ParsedMedia {
     pub source: Option<String>,
     pub streaming_service: Option<StreamingService>,
     pub video_codec: Option<String>,
+    /// Video sample bit depth indicated by release-name markers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video_bit_depth: Option<u8>,
     /// Whether release-name markers indicate that the publisher transcoded the video.
     /// `None` represents insufficient or conflicting evidence.
     #[serde(default, skip_serializing_if = "Option::is_none")]

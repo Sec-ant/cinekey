@@ -145,8 +145,28 @@ fn technical_phrase(tokens: &[Token<'_>], index: usize) -> bool {
                     .any(|token| ascii_one_of(token.text, &["hou", "hsbs", "sbs"]))
         }
         Some(b'i' | b'm' | b'n' | b'a' | b'p') => metadata::service_prefix(tokens, index),
+        Some(b'1' | b'8') => video_bit_depth(tokens, index).is_some(),
         _ => false,
     }
+}
+
+fn video_bit_depth(tokens: &[Token<'_>], index: usize) -> Option<u8> {
+    let token = &tokens[index];
+    if let Some(Word::VideoBitDepth(depth)) = token.word {
+        return Some(depth);
+    }
+    let depth = match token.text {
+        "8" => 8,
+        "10" => 10,
+        "12" => 12,
+        _ => return None,
+    };
+    let next = tokens.get(index + 1)?;
+    (matches!(
+        next.before,
+        Separator::Dot | Separator::Dash | Separator::Underscore | Separator::Space
+    ) && ascii_one_of(next.text, &["bit", "bits"]))
+    .then_some(depth)
 }
 
 fn separated_video_codec(tokens: &[Token<'_>], index: usize) -> Option<&'static str> {
@@ -265,6 +285,7 @@ pub(super) fn fill_technical(
     let mut copied = false;
     let mut downloaded = false;
     let mut native_codec = false;
+    let mut bit_depths = 0u16;
     for (i, token) in tokens.iter().enumerate() {
         let before_technical = !token.bracketed && first_tech.is_some_and(|start| i < start);
         let metadata_area =
@@ -285,6 +306,9 @@ pub(super) fn fill_technical(
             && marker.end <= group_start
         {
             marker.value.apply(candidate);
+        }
+        if metadata_area && let Some(depth) = video_bit_depth(tokens, i) {
+            bit_depths |= 1 << depth;
         }
         if before_technical {
             continue;
@@ -426,6 +450,9 @@ pub(super) fn fill_technical(
         }
     }
 
+    candidate.video_bit_depth = bit_depths
+        .is_power_of_two()
+        .then(|| bit_depths.trailing_zeros() as u8);
     candidate.video_transcoded = match (encoded, copied) {
         (true, false) => Some(true),
         (false, true) => Some(false),
@@ -646,7 +673,6 @@ fn group_start_word(tokens: &[Token<'_>], index: usize) -> bool {
                 | b"mp4"
                 | b"pcm"
                 | b"lpcm"
-                | b"hi10p"
                 | b"preair"
                 | b"svid"
                 | b"line"

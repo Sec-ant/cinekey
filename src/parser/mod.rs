@@ -971,6 +971,7 @@ fn empty_candidate(kind: MediaKind, score: i32) -> Candidate {
             source: None,
             streaming_service: None,
             video_codec: None,
+            video_bit_depth: None,
             video_transcoded: None,
             dynamic_range: Vec::new(),
             audio_codec: Vec::new(),

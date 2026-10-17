@@ -99,9 +99,13 @@ assert_eq!(media.episodes, [2]);
 | `title_annotations` | Trailing parenthesized names and qualifiers, in input order |
 | `edition` | Edition qualifiers, including Limited, Unrated, Extended, and Director's Cut |
 | `resolution`, `source`, `streaming_service`, `video_codec`, `dynamic_range` | Resolution, release medium, originating service, video codec, and dynamic range |
+| `video_bit_depth` | Video sample bit depth, such as 8, 10, or 12 |
 | `video_transcoded` | Whether release markers indicate that the publisher transcoded the video |
 | `audio_codec`, `audio_profile`, `audio_channels` | Audio codecs, their profiles, and channel layout |
 | `release_flags`, `release_group` | Release status and packaging markers, followed by the release group |
+
+`video_bit_depth` normalizes explicit 8-, 10-, and 12-bit markers, including
+`Hi10P` as 10. Missing or conflicting markers leave the field absent.
 
 Optional scalar fields use `Option`. Editions, release flags, and audio profiles use typed `EnumSet` bitsets, with stable, duplicate-free iteration and readable JSON arrays. Other repeated fields use vectors. Empty annotation lists and bitsets are omitted from JSON and deserialize as empty collections. `source` describes release media such as Blu-ray or WEB-DL; `streaming_service` identifies platforms such as Netflix (`NF`), Amazon (`AMZN`), Movies Anywhere (`MA`), and iTunes (`iT`). Audio context distinguishes DTS-HD Master Audio (`DTS-HD.MA`) from the Movies Anywhere service marker. Structural and release anchors select the best interpretation, including the release year when a title contains another year.
 
