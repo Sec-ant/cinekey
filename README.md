@@ -199,4 +199,4 @@ This pushes the commit and its annotated `v<version>` tag atomically. The releas
 
 After all checks and builds succeed, the workflow uploads the archives and `SHA256SUMS` to a draft GitHub Release, publishes the crate through [crates.io Trusted Publishing](https://crates.io/docs/trusted-publishing), and publishes the GitHub Release. The trusted publisher binds `Sec-ant/cinekey` to `release.yml`.
 
-The workflow also supports manual runs that retain build artifacts for seven days. A run on a branch builds artifacts; a run on a version tag completes the release. Failed runs can be rerun for the same tag; an existing crate version is checked against the tag's commit.
+The workflow also supports manual runs with an optional version tag. An empty tag builds branch artifacts; a version tag builds and publishes that release. Build artifacts remain available for seven days. All jobs use the same source commit. Failed runs can be rerun for the same tag; an existing crate version is checked against the tag's commit.

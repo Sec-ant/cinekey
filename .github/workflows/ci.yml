@@ -5,6 +5,11 @@ on:
     branches: ["**"]
   pull_request:
   workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -17,6 +22,9 @@ jobs:
         toolchain: ["1.88.0", stable]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
       - name: Install Rust
         run: |
           rustup toolchain install "${{ matrix.toolchain }}" --profile minimal

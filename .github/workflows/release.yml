@@ -4,41 +4,62 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version tag to release; leave empty to build branch artifacts"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
   cancel-in-progress: false
 
 jobs:
   check:
+    needs: prepare
     uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.prepare.outputs.commit }}
 
   prepare:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.metadata.outputs.version }}
       bundle: ${{ steps.metadata.outputs.bundle }}
+      tag: ${{ steps.metadata.outputs.tag }}
+      commit: ${{ steps.metadata.outputs.commit }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.sha }}
       - id: metadata
         shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
         run: |
           version=$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "cinekey") | .version')
-          if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" != "v$version" ]]; then
-            echo "Tag $GITHUB_REF_NAME must match package version v$version." >&2
+          tag="$REQUESTED_TAG"
+          if [[ -z "$tag" && "$GITHUB_REF_TYPE" == tag ]]; then tag="$GITHUB_REF_NAME"; fi
+          if [[ -n "$tag" && "$tag" != "v$version" ]]; then
+            echo "Tag $tag must match package version v$version." >&2
             exit 1
           fi
+          commit=$(git rev-parse HEAD)
           bundle="$version"
-          if [[ "$GITHUB_REF_TYPE" != tag ]]; then
-            bundle="$version-g${GITHUB_SHA:0:7}"
+          if [[ -z "$tag" ]]; then
+            bundle="$version-g${commit:0:7}"
           fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "bundle=$bundle" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$version"
+            echo "bundle=$bundle"
+            echo "tag=$tag"
+            echo "commit=$commit"
+          } >> "$GITHUB_OUTPUT"
 
   cli:
     needs: prepare
@@ -70,22 +91,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ needs.prepare.outputs.commit }}
       - name: Install Rust
         shell: bash
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
           rustup target add "$TARGET"
-      - name: Install musl linker
-        if: contains(matrix.target, 'musl')
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
       - name: Build CLI
         shell: bash
         env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
         run: |
           if [[ "$RUNNER_OS" == Windows ]]; then
             export RUSTFLAGS="-C target-feature=+crt-static"
@@ -135,6 +152,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ needs.prepare.outputs.commit }}
       - name: Install Rust
         run: |
           rustup toolchain install stable --profile minimal
@@ -169,7 +187,7 @@ jobs:
           retention-days: 7
 
   publish:
-    if: github.ref_type == 'tag'
+    if: needs.prepare.outputs.tag != ''
     needs: [prepare, check, cli, wasm]
     runs-on: ubuntu-latest
     permissions:
@@ -179,10 +197,13 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       VERSION: ${{ needs.prepare.outputs.version }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      COMMIT: ${{ needs.prepare.outputs.commit }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ needs.prepare.outputs.commit }}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: release-*
@@ -195,14 +216,14 @@ jobs:
           (cd dist && sha256sum cinekey-* > SHA256SUMS)
           flags=()
           if [[ "$VERSION" == *-* ]]; then flags+=(--prerelease); fi
-          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" --draft --verify-tag --generate-notes \
-              --title "cinekey $GITHUB_REF_NAME" "${flags[@]}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --draft --verify-tag --generate-notes \
+              --title "cinekey $TAG" "${flags[@]}"
           fi
-          draft=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft)
+          draft=$(gh release view "$TAG" --json isDraft --jq .isDraft)
           echo "draft=$draft" >> "$GITHUB_OUTPUT"
           if [[ "$draft" == true ]]; then
-            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+            gh release upload "$TAG" dist/* --clobber
           fi
       - name: Check registry version
         id: registry
@@ -218,7 +239,7 @@ jobs:
                 "https://static.crates.io/crates/cinekey/cinekey-$VERSION.crate" \
                 --output "$RUNNER_TEMP/published.crate"
               tar -xzOf "$RUNNER_TEMP/published.crate" "cinekey-$VERSION/.cargo_vcs_info.json" \
-                | jq --exit-status --arg sha "$GITHUB_SHA" '.git.sha1 == $sha and .git.dirty != true'
+                | jq --exit-status --arg sha "$COMMIT" '.git.sha1 == $sha and .git.dirty != true'
               jq --exit-status '.version.yanked == false' "$RUNNER_TEMP/crate-version.json"
               echo "published=true" >> "$GITHUB_OUTPUT"
               ;;
@@ -240,4 +261,4 @@ jobs:
         run: cargo publish --locked -p cinekey --registry crates-io
       - name: Publish GitHub Release
         if: steps.release.outputs.draft == 'true'
-        run: gh release edit "$GITHUB_REF_NAME" --draft=false
+        run: gh release edit "$TAG" --draft=false
