@@ -141,27 +141,15 @@ jobs:
             export RUSTFLAGS="-C target-feature=+crt-static"
           fi
           cargo build --locked --profile dist --target "$TARGET" --bin cinekey
-      - name: Package Unix CLI
-        if: runner.os != 'Windows'
+      - name: Prepare CLI binary
         shell: bash
         run: |
-          mkdir -p dist/package
-          cp "target/$TARGET/dist/cinekey" dist/package/cinekey
-          ln dist/package/cinekey dist/package/ck
-          cp README.md LICENSE dist/package/
-          dist/package/cinekey --version
-          COPYFILE_DISABLE=1 tar -C dist/package -czf "dist/cinekey-$BUNDLE-$TARGET.tar.gz" cinekey ck README.md LICENSE
-      - name: Package Windows CLI
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force dist/package | Out-Null
-          Copy-Item "target/$env:TARGET/dist/cinekey.exe" dist/package/cinekey.exe
-          Copy-Item dist/package/cinekey.exe dist/package/ck.exe
-          Copy-Item README.md, LICENSE dist/package/
-          & dist/package/cinekey.exe --version
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Compress-Archive -Path dist/package/* -DestinationPath "dist/cinekey-$env:BUNDLE-$env:TARGET.zip"
+          suffix=""
+          if [[ "$RUNNER_OS" == Windows ]]; then suffix=.exe; fi
+          mkdir -p dist
+          binary="dist/cinekey-$BUNDLE-$TARGET$suffix"
+          cp "target/$TARGET/dist/cinekey$suffix" "$binary"
+          "$binary" --version
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-cli-${{ matrix.target }}
