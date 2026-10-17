@@ -2,6 +2,8 @@
 
 A Rust library and CLI for parsing movie and television release names, with a focus on Scene/P2P releases from PT trackers. Each input produces one record of identification fields and technical metadata.
 
+[crates.io](https://crates.io/crates/cinekey) · [API documentation](https://docs.rs/cinekey)
+
 Rust 1.88 or newer is required. Licensed under MIT.
 
 ## Install
@@ -24,7 +26,6 @@ For a library dependency:
 [dependencies]
 cinekey = { version = "0.3", default-features = false }
 ```
-
 
 ## CLI
 
@@ -105,7 +106,7 @@ Optional scalar fields use `Option`. Editions, release flags, and audio profiles
 
 The Rust library supports `wasm32-unknown-unknown` with `default-features = false`. The `cinekey-wasm` workspace package provides browser and Node bindings over the same parser. `parse` and `parseWithContext` return plain JavaScript objects with the fields above, nullable scalar values, and native arrays. Generated TypeScript declarations describe both inputs and results.
 
-Install the Wasm Rust target and `wasm-bindgen-cli` 0.2.129:
+From a local checkout, install the Wasm Rust target and `wasm-bindgen-cli` 0.2.129:
 
 ```sh
 rustup target add wasm32-unknown-unknown
