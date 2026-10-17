@@ -1,0 +1,63 @@
+name: Homebrew
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+    secrets:
+      HOMEBREW_TAP_DEPLOY_KEY:
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Stable release tag to distribute through Homebrew
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homebrew-tap
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Sec-ant/homebrew-tap
+          path: homebrew-tap
+          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+      - name: Update Homebrew formula
+        shell: bash
+        run: |
+          version=${TAG#v}
+          if [[ "$TAG" != "v$version" || ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'Expected a stable v<version> tag.' >&2
+            exit 1
+          fi
+          current=$(sed -n 's@.*releases/download/v\([^/]*\)/.*@\1@p' homebrew-tap/Formula/cinekey.rb | sort -u)
+          if [[ -n "$current" && "$(printf '%s\n' "$current" "$version" | sort -V | tail -n 1)" != "$version" ]]; then
+            echo "Homebrew already provides newer version $current."
+            exit 0
+          fi
+          gh release view "$TAG" --json isDraft,isPrerelease | jq --exit-status '.isDraft == false and .isPrerelease == false'
+          gh release download "$TAG" --pattern SHA256SUMS --dir "$RUNNER_TEMP"
+          bash scripts/homebrew-formula.sh "$version" "$RUNNER_TEMP/SHA256SUMS" > homebrew-tap/Formula/cinekey.rb
+          if git -C homebrew-tap diff --quiet -- Formula/cinekey.rb; then exit 0; fi
+          git -C homebrew-tap config user.name 'github-actions[bot]'
+          git -C homebrew-tap config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C homebrew-tap add Formula/cinekey.rb
+          git -C homebrew-tap commit -m "Update cinekey to $version"
+          git -C homebrew-tap push

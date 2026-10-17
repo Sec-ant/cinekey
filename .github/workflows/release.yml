@@ -354,3 +354,12 @@ jobs:
       - name: Publish GitHub Release
         if: steps.release.outputs.draft == 'true'
         run: gh release edit "$TAG" --draft=false
+
+  homebrew:
+    if: needs.prepare.outputs.tag != '' && !contains(needs.prepare.outputs.version, '-')
+    needs: [prepare, publish]
+    uses: ./.github/workflows/homebrew.yml
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}
+    secrets:
+      HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}

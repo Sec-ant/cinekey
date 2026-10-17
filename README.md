@@ -8,6 +8,12 @@ Rust 1.88 or newer is required. Licensed under MIT.
 
 ## Install
 
+Install with Homebrew:
+
+```sh
+brew install sec-ant/tap/cinekey
+```
+
 Prebuilt CLI binaries for Linux, macOS, and Windows are available from [GitHub Releases](https://github.com/Sec-ant/cinekey/releases/latest). Download the binary for your platform and save it as `cinekey` (`cinekey.exe` on Windows). On Linux and macOS, run `chmod +x cinekey` to make it executable.
 
 ```sh
@@ -223,3 +229,5 @@ Merge the Release PR to publish. Actions prepares the `v<version>` tag at the me
 After all checks and builds succeed, the workflow uploads the CLI binaries, Wasm archives, npm tarball, and `SHA256SUMS` to GitHub Releases and publishes the crate and npm package through Trusted Publishing. Both registries bind `Sec-ant/cinekey` to `release.yml`. npm uses GitHub OIDC and generates provenance automatically. Prerelease npm versions use the `next` dist-tag.
 
 The release workflow also supports manual runs with an optional version tag. An empty tag builds branch artifacts; a version tag builds and publishes that release. Build artifacts remain available for seven days. All jobs use the same source commit. Failed runs can be rerun for the same tag; existing registry versions are checked against the tag's commit.
+
+Stable releases update the formula in [`Sec-ant/homebrew-tap`](https://github.com/Sec-ant/homebrew-tap) from the published binaries and `SHA256SUMS`. The `HOMEBREW_TAP_DEPLOY_KEY` Actions secret grants write access to that tap. Users receive updates through `brew upgrade cinekey`.
