@@ -1,4 +1,10 @@
 # Changelog
+## 0.4.5 (2026-10-17)
+
+### Fixes
+
+- Install and upgrade the CLI through Homebrew with `brew install sec-ant/tap/cinekey`.
+
 ## 0.4.4 (2026-10-17)
 
 ### Fixes
