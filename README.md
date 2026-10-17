@@ -97,10 +97,13 @@ assert_eq!(media.episodes, [2]);
 | `title_annotations` | Trailing parenthesized names and qualifiers, in input order |
 | `edition` | Edition qualifiers, including Limited, Unrated, Extended, and Director's Cut |
 | `resolution`, `source`, `streaming_service`, `video_codec`, `dynamic_range` | Resolution, release medium, originating service, video codec, and dynamic range |
+| `video_transcoded` | Whether release markers indicate that the publisher transcoded the video |
 | `audio_codec`, `audio_profile`, `audio_channels` | Audio codecs, their profiles, and channel layout |
 | `release_flags`, `release_group` | Release status and packaging markers, followed by the release group |
 
 Optional scalar fields use `Option`. Editions, release flags, and audio profiles use typed `EnumSet` bitsets, with stable, duplicate-free iteration and readable JSON arrays. Other repeated fields use vectors. Empty annotation lists and bitsets are omitted from JSON and deserialize as empty collections. `source` describes release media such as Blu-ray or WEB-DL; `streaming_service` identifies platforms such as Netflix (`NF`), Amazon (`AMZN`), Movies Anywhere (`MA`), and iTunes (`iT`). Audio context distinguishes DTS-HD Master Audio (`DTS-HD.MA`) from the Movies Anywhere service marker. Structural and release anchors select the best interpretation, including the release year when a title contains another year.
+
+`video_transcoded` is an optional boolean inferred from release naming conventions. Encoder and rip markers indicate `true`; Remux, WEB-DL, Scene-style WEB with a codec, and Complete Blu-ray with AVC/H.264 or HEVC/H.265 indicate `false`. Explicit transcoding markers take priority over source-only hints. Insufficient or conflicting evidence leaves the field absent. It describes video processing relative to the release's source; audio conversion and container changes are independent.
 
 ## WebAssembly
 

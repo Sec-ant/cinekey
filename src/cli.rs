@@ -106,6 +106,7 @@ impl Serialize for OutputRecord<'_> {
         optional!(source);
         optional!(streaming_service);
         optional!(video_codec);
+        optional!(video_transcoded);
         list!(dynamic_range);
         list!(audio_codec);
         list!(audio_profile);
@@ -301,6 +302,7 @@ fn write_human(out: &mut impl Write, media: &ParsedMedia) -> io::Result<()> {
     }
     write_field(out, "streaming_service", media.streaming_service)?;
     write_field(out, "video_codec", media.video_codec.as_deref())?;
+    write_field(out, "video_transcoded", media.video_transcoded)?;
     write_list(out, "dynamic_range", &media.dynamic_range)?;
     write_list(out, "audio_codec", &media.audio_codec)?;
     write_list(out, "audio_profile", media.audio_profile)?;

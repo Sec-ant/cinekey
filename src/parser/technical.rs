@@ -1,6 +1,7 @@
 use crate::{
     lexer::{ReleaseToken as Token, Separator},
     model::MediaKind,
+    vocabulary::Word,
 };
 
 use super::episodes::{parse_s_token, parse_x_format};
@@ -118,7 +119,7 @@ fn technical_phrase(tokens: &[Token<'_>], index: usize) -> bool {
                     .is_some_and(|prefix| prefix.eq_ignore_ascii_case("br"))
                     && word.get(2..).and_then(resolution).is_some()
         }
-        Some(b'h') => {
+        Some(b'h' | b'x') => {
             word.eq_ignore_ascii_case("hd")
                 && next.is_some_and(|text| text.eq_ignore_ascii_case("light"))
                 || separated_video_codec(tokens, index).is_some()
@@ -149,7 +150,7 @@ fn technical_phrase(tokens: &[Token<'_>], index: usize) -> bool {
 }
 
 fn separated_video_codec(tokens: &[Token<'_>], index: usize) -> Option<&'static str> {
-    if !tokens.get(index)?.text.eq_ignore_ascii_case("h") {
+    if !ascii_one_of(tokens.get(index)?.text, &["h", "x"]) {
         return None;
     }
     let next = tokens.get(index + 1)?;
@@ -260,6 +261,10 @@ pub(super) fn fill_technical(
     if let Some(value) = group {
         candidate.release_group = Some(value.text.to_owned());
     }
+    let mut encoded = false;
+    let mut copied = false;
+    let mut downloaded = false;
+    let mut native_codec = false;
     for (i, token) in tokens.iter().enumerate() {
         let before_technical = !token.bracketed && first_tech.is_some_and(|start| i < start);
         let metadata_area =
@@ -312,48 +317,64 @@ pub(super) fn fill_technical(
                 candidate.resolution = Some(resolution);
             }
         }
-        let source = match key {
-            b"bluray" | b"bdrip" | b"brrip" | b"bd" | b"bdmux" | b"brmux" | b"bdripmux"
-            | b"brripmux" => Some("Blu-ray"),
-            _ if combined_resolution.is_some() => Some("Blu-ray"),
+        let (source, source_transcoded) = match key {
+            b"bluray" | b"bd" => (Some("Blu-ray"), None),
+            b"bdrip" | b"brrip" => (Some("Blu-ray"), Some(true)),
+            b"bdmux" | b"brmux" | b"bdripmux" | b"brripmux" | b"bdremux" | b"uhdremux" => {
+                (Some("Blu-ray"), Some(false))
+            }
+            _ if combined_resolution.is_some() => (Some("Blu-ray"), None),
             b"blu"
                 if tokens
                     .get(i + 1)
                     .is_some_and(|next| next.text.eq_ignore_ascii_case("ray")) =>
             {
-                Some("Blu-ray")
+                (Some("Blu-ray"), None)
             }
             b"web"
                 if tokens.get(i + 1).is_some_and(|next| {
                     next.before == Separator::Dash && next.text.eq_ignore_ascii_case("dl")
                 }) =>
             {
-                Some("WEB-DL")
+                downloaded |= metadata_area;
+                (Some("WEB-DL"), None)
             }
-            b"webdl" | b"webrip" | b"web" => Some("Web"),
-            b"hdtv" | b"pdtv" | b"hdtvrip" => Some("HDTV"),
-            b"sdtv" | b"tvrip" => Some("SDTV"),
-            b"dvd" | b"dvdrip" | b"dvdr" | b"dvdscr" => Some("DVD"),
-            b"vhs" => Some("VHS"),
-            b"hdcam" | b"camrip" => Some("CAM"),
-            b"hdrip" => Some("HD Rip"),
-            b"remux" => Some("Remux"),
-            _ => None,
+            b"webdl" => {
+                downloaded |= metadata_area;
+                (Some("Web"), None)
+            }
+            b"webrip" => (Some("Web"), Some(true)),
+            b"web" => (Some("Web"), None),
+            b"hdtv" | b"pdtv" => (Some("HDTV"), None),
+            b"hdtvrip" => (Some("HDTV"), Some(true)),
+            b"sdtv" => (Some("SDTV"), None),
+            b"tvrip" => (Some("SDTV"), Some(true)),
+            b"dvd" | b"dvdr" | b"dvdscr" => (Some("DVD"), None),
+            b"dvdrip" => (Some("DVD"), Some(true)),
+            b"vhs" => (Some("VHS"), None),
+            b"hdcam" | b"camrip" => (Some("CAM"), None),
+            b"hdrip" => (Some("HD Rip"), Some(true)),
+            b"remux" => (Some("Remux"), Some(false)),
+            _ => (None, None),
         };
+        if metadata_area {
+            encoded |= source_transcoded == Some(true);
+            copied |= source_transcoded == Some(false);
+        }
         if let Some(source) = source {
             candidate.source.get_or_insert_with(|| source.to_owned());
         }
-        let codec = match key {
-            b"x264" | b"h264" | b"avc" => Some("H.264"),
-            b"x265" | b"h265" | b"hevc" => Some("H.265"),
-            b"av1" => Some("AV1"),
-            b"vp9" => Some("VP9"),
-            b"xvid" => Some("Xvid"),
-            b"divx" => Some("DivX"),
-            b"h" => separated_video_codec(tokens, i),
-            _ => None,
+        let (codec, encoder) = match token.word {
+            Some(Word::VideoCodec(codec)) => (Some(codec.as_str()), false),
+            Some(Word::VideoEncoder(codec)) => (Some(codec.as_str()), true),
+            _ if matches!(key, b"h" | b"x") => (separated_video_codec(tokens, i), key == b"x"),
+            _ => (None, false),
         };
         if let Some(codec) = codec {
+            if metadata_area {
+                encoded |= encoder;
+                native_codec |= !encoder;
+            }
             candidate
                 .video_codec
                 .get_or_insert_with(|| codec.to_owned());
@@ -404,6 +425,21 @@ pub(super) fn fill_technical(
                 .get_or_insert_with(|| format!("{channel}.{layout}"));
         }
     }
+
+    candidate.video_transcoded = match (encoded, copied) {
+        (true, false) => Some(true),
+        (false, true) => Some(false),
+        (true, true) => None,
+        (false, false) => {
+            let disc = candidate.source.as_deref() == Some("Blu-ray")
+                && candidate
+                    .release_flags
+                    .contains(crate::ReleaseFlag::Complete)
+                && matches!(candidate.video_codec.as_deref(), Some("H.264" | "H.265"));
+            (downloaded || native_codec && (candidate.source.as_deref() == Some("Web") || disc))
+                .then_some(false)
+        }
+    };
 
     if candidate.source.as_deref() == Some("Web")
         && tokens

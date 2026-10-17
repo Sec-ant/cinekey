@@ -80,6 +80,10 @@ pub struct ParsedMedia {
     pub source: Option<String>,
     pub streaming_service: Option<StreamingService>,
     pub video_codec: Option<String>,
+    /// Whether release-name markers indicate that the publisher transcoded the video.
+    /// `None` represents insufficient or conflicting evidence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video_transcoded: Option<bool>,
     pub dynamic_range: Vec<String>,
     pub audio_codec: Vec<String>,
     #[serde(default, skip_serializing_if = "EnumSet::is_empty")]

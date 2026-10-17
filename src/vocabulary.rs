@@ -43,8 +43,33 @@ pub(crate) enum Phrase {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum VideoCodec {
+    H264,
+    H265,
+    Av1,
+    Vp9,
+    Xvid,
+    Divx,
+}
+
+impl VideoCodec {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::H264 => "H.264",
+            Self::H265 => "H.265",
+            Self::Av1 => "AV1",
+            Self::Vp9 => "VP9",
+            Self::Xvid => "Xvid",
+            Self::Divx => "DivX",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Word {
     Technical,
+    VideoCodec(VideoCodec),
+    VideoEncoder(VideoCodec),
     Phrase(Phrase),
     Service(StreamingService),
     ServiceBoundary(StreamingService),
@@ -59,6 +84,8 @@ impl Word {
         matches!(
             self,
             Self::Technical
+                | Self::VideoCodec(_)
+                | Self::VideoEncoder(_)
                 | Self::ServiceBoundary(_)
                 | Self::EditionBoundary(_)
                 | Self::FlagBoundary(_)
@@ -67,7 +94,9 @@ impl Word {
 
     pub(crate) fn attribute(self) -> Option<Attribute> {
         Some(match self {
-            Self::Technical | Self::Phrase(_) => return None,
+            Self::Technical | Self::VideoCodec(_) | Self::VideoEncoder(_) | Self::Phrase(_) => {
+                return None;
+            }
             Self::Service(value) | Self::ServiceBoundary(value) => Attribute::Service(value),
             Self::Edition(value) | Self::EditionBoundary(value) => Attribute::Edition(value),
             Self::Flag(value) | Self::FlagBoundary(value) => Attribute::Flag(value),
@@ -99,7 +128,16 @@ pub(crate) fn word(key: &[u8], original: &str) -> Option<Word> {
     use Edition::*;
     use ReleaseFlag::*;
     use StreamingService::*;
+    use VideoCodec as V;
     let (value, boundary) = match key {
+        b"x264" => return Some(Word::VideoEncoder(V::H264)),
+        b"h264" | b"avc" => return Some(Word::VideoCodec(V::H264)),
+        b"x265" => return Some(Word::VideoEncoder(V::H265)),
+        b"h265" | b"hevc" => return Some(Word::VideoCodec(V::H265)),
+        b"av1" => return Some(Word::VideoCodec(V::Av1)),
+        b"vp9" => return Some(Word::VideoCodec(V::Vp9)),
+        b"xvid" => return Some(Word::VideoEncoder(V::Xvid)),
+        b"divx" => return Some(Word::VideoEncoder(V::Divx)),
         b"ma" => return Some(Word::Phrase(Phrase::Ma)),
         b"master" => return Some(Word::Phrase(Phrase::Master)),
         b"hra" | b"hr" => return Some(Word::Phrase(Phrase::HighResolution)),
@@ -116,11 +154,9 @@ pub(crate) fn word(key: &[u8], original: &str) -> Option<Word> {
         | b"brmux" | b"bdripmux" | b"brripmux" | b"bd" | b"web" | b"webdl" | b"webrip"
         | b"hdtv" | b"pdtv" | b"sdtv" | b"tvrip" | b"hdrip" | b"hdtvrip" | b"hdcam" | b"camrip"
         | b"hdlight" | b"mhd" | b"dvdrip" | b"dvdr" | b"dvdscr" | b"vhs" | b"pal" | b"ntsc"
-        | b"dvd" | b"x264" | b"h264" | b"avc" | b"x265" | b"h265" | b"hevc" | b"av1" | b"vp9"
-        | b"xvid" | b"divx" | b"hdr" | b"hdr10" | b"hdr10plus" | b"dv" | b"dovi"
-        | b"dolbyvision" | b"sdr" | b"atmos" | b"truehd" | b"flac" | b"aac" | b"opus" | b"dts"
-        | b"dd" | b"ddp" | b"ac3" | b"ac3d" | b"eac3" | b"dual" | b"convert" | b"10bit"
-        | b"8bit" => {
+        | b"dvd" | b"hdr" | b"hdr10" | b"hdr10plus" | b"dv" | b"dovi" | b"dolbyvision" | b"sdr"
+        | b"atmos" | b"truehd" | b"flac" | b"aac" | b"opus" | b"dts" | b"dd" | b"ddp" | b"ac3"
+        | b"ac3d" | b"eac3" | b"dual" | b"convert" | b"10bit" | b"8bit" => {
             return Some(Word::Technical);
         }
         b"nf" => (S(Netflix), true),
@@ -159,7 +195,7 @@ pub(crate) fn word(key: &[u8], original: &str) -> Option<Word> {
         b"proper" => (F(Proper), true),
         b"repack" => (F(Repack), true),
         b"nfofix" => (F(NfoFix), true),
-        b"remux" => (F(Remux), true),
+        b"remux" | b"bdremux" | b"uhdremux" => (F(Remux), true),
         b"subbed" => (F(Subbed), true),
         b"real" => (F(Real), false),
         b"internal" | b"int" => (F(Internal), false),
