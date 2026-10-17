@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/Sec-ant/cinekey"
 keywords = ["media", "parser", "movies", "television", "cli"]
 categories = ["parser-implementations", "command-line-utilities"]
-include = ["src/**", "benches/**", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE"]
+include = ["src/**", "benches/**", "Cargo.toml", "Cargo.lock", "README.md", "CHANGELOG.md", "LICENSE"]
 
 [workspace]
 members = ["crates/cinekey-wasm"]

@@ -90,6 +90,10 @@ eval +args:
 clean:
     cargo clean
 
+# Describe a user-facing change and select its release level.
+change:
+    knope change
+
 # Publish the committed package version through the tag-triggered release workflow.
 release:
     #!/usr/bin/env bash

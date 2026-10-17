@@ -204,14 +204,18 @@ The Rust API follows [Microsoft's Pragmatic Rust Guidelines](https://microsoft.g
 
 ## Releasing
 
-Set the package versions, update the lockfiles, and commit the changes on `main`. Then run:
+Releases use [Knope](https://knope.tech/) 0.23.0 and Changesets-style Markdown files. Describe a user-facing change and select its release level:
 
 ```sh
-just release
+just change
 ```
 
-This pushes the commit and its annotated `v<version>` tag atomically. The release workflow checks the tag against the crate version, runs CI, and builds CLI archives for x86-64 and ARM64 Linux (GNU and musl), macOS, and Windows, plus browser and Node Wasm packages. Builds use the `dist` profile.
+Commit the generated `.changeset/*.md` file with the implementation. Use `patch` for fixes, `minor` for features, and `major` for breaking changes. For `0.x` releases, breaking changes advance the minor number; features and fixes advance the patch number. [Contributing](CONTRIBUTING.md) covers installation and the change-file format.
 
-After all checks and builds succeed, the workflow uploads the archives, npm tarball, and `SHA256SUMS` to a draft GitHub Release, publishes the crate and npm package through Trusted Publishing, and publishes the GitHub Release. Both registries bind `Sec-ant/cinekey` to `release.yml`. npm uses GitHub OIDC and generates provenance automatically. Prerelease npm versions use the `next` dist-tag.
+When changes reach `main`, CI creates or updates the `knope/release` branch and its Release PR. The PR combines pending changes, synchronizes Cargo versions and lockfiles, updates `CHANGELOG.md`, and runs CI. Rust, CLI, and npm share one release version; the npm manifest derives its version from Cargo during packaging.
 
-The workflow also supports manual runs with an optional version tag. An empty tag builds branch artifacts; a version tag builds and publishes that release. Build artifacts remain available for seven days. All jobs use the same source commit. Failed runs can be rerun for the same tag; existing registry versions are checked against the tag's commit.
+Merge the Release PR to publish. CI creates an annotated `v<version>` tag and starts the release workflow at that tag. The workflow checks the version, runs CI, and builds CLI archives for x86-64 and ARM64 Linux (GNU and musl), macOS, and Windows, plus browser and Node Wasm packages. Builds use the `dist` profile.
+
+After all checks and builds succeed, the workflow uploads the archives, npm tarball, and `SHA256SUMS` to a draft GitHub Release, publishes the crate and npm package through Trusted Publishing, and publishes the GitHub Release with the changelog entry as its release notes. Both registries bind `Sec-ant/cinekey` to `release.yml`. npm uses GitHub OIDC and generates provenance automatically. Prerelease npm versions use the `next` dist-tag.
+
+The release workflow also supports manual runs with an optional version tag. An empty tag builds branch artifacts; a version tag builds and publishes that release. Build artifacts remain available for seven days. All jobs use the same source commit. Failed runs can be rerun for the same tag; existing registry versions are checked against the tag's commit. `just release` provides a manual tag-push entry point for a committed release version.

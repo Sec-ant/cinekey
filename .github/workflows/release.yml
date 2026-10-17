@@ -253,7 +253,16 @@ jobs:
           flags=()
           if [[ "$VERSION" == *-* ]]; then flags+=(--prerelease); fi
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --draft --verify-tag --generate-notes \
+            awk -v version="$VERSION" '
+              /^## / {
+                if (active) exit
+                active = ($2 == version)
+                next
+              }
+              active { print }
+            ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+            test -s "$RUNNER_TEMP/release-notes.md"
+            gh release create "$TAG" --draft --verify-tag --notes-file "$RUNNER_TEMP/release-notes.md" \
               --title "cinekey $TAG" "${flags[@]}"
           fi
           draft=$(gh release view "$TAG" --json isDraft --jq .isDraft)
