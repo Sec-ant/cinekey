@@ -13,6 +13,7 @@ use cinekey::{ExpectedKind, ParseContext};
 use clap::{Parser, Subcommand};
 use serde_json::Value;
 
+mod output;
 mod prepare;
 mod scoring;
 

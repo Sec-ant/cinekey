@@ -45,6 +45,16 @@ fn technical_from(tokens: &[Token<'_>], start: usize, episode_title: bool) -> Op
         .skip(content_start.max(start))
         .filter(|(_, token)| !episode_title || !metadata::edition_word(token))
         .find_map(|(index, token)| {
+            let title_bit_depth = index == content_start
+                && !token.bracketed
+                && video_bit_depth_marker(tokens, index).is_some_and(|(_, last)| {
+                    tokens
+                        .get(last + 1)
+                        .is_some_and(|next| !next.is_technical() && !is_release_year(next.text))
+                });
+            if title_bit_depth {
+                return None;
+            }
             let technical = token.is_technical()
                 && technical_word_context(tokens, index)
                 && !(index == content_start
@@ -151,9 +161,13 @@ fn technical_phrase(tokens: &[Token<'_>], index: usize) -> bool {
 }
 
 fn video_bit_depth(tokens: &[Token<'_>], index: usize) -> Option<u8> {
+    video_bit_depth_marker(tokens, index).map(|(depth, _)| depth)
+}
+
+fn video_bit_depth_marker(tokens: &[Token<'_>], index: usize) -> Option<(u8, usize)> {
     let token = &tokens[index];
     if let Some(Word::VideoBitDepth(depth)) = token.word {
-        return Some(depth);
+        return Some((depth, index));
     }
     let depth = match token.text {
         "8" => 8,
@@ -166,7 +180,7 @@ fn video_bit_depth(tokens: &[Token<'_>], index: usize) -> Option<u8> {
         next.before,
         Separator::Dot | Separator::Dash | Separator::Underscore | Separator::Space
     ) && ascii_one_of(next.text, &["bit", "bits"]))
-    .then_some(depth)
+    .then_some((depth, index + 1))
 }
 
 fn separated_video_codec(tokens: &[Token<'_>], index: usize) -> Option<&'static str> {
@@ -552,12 +566,16 @@ pub(super) fn release_group<'a>(
     let suffix = stem[dash + 1..].trim();
     let last_index = tokens.len().checked_sub(1)?;
     let last = &tokens[last_index];
-    let fallback =
-        (last.text == suffix && valid_group(suffix) && !is_web_dl_suffix(tokens, last_index))
-            .then_some(Group {
-                text: suffix,
-                start: last.start,
-            });
+    let fallback = (last.text == suffix
+        && valid_group(suffix)
+        && !is_web_dl_suffix(tokens, last_index)
+        && !last_index.checked_sub(1).is_some_and(|previous| {
+            video_bit_depth_marker(tokens, previous).is_some_and(|(_, end)| end == last_index)
+        }))
+    .then_some(Group {
+        text: suffix,
+        start: last.start,
+    });
     if fallback.is_some()
         && last_index > 0
         && last.before == Separator::Dash

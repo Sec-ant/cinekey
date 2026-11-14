@@ -1,6 +1,7 @@
 /target
 /pkg
 /dist
+/scripts/node_modules
 **/target/
 
 tools/eval/local-corpus.jsonl

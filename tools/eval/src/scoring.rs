@@ -249,18 +249,21 @@ pub fn run(scope: Scope, expectations: &Path, results: &Path, output_dir: &Path)
         Scope::Local => score_local(&labels, rows(results)?)?,
         Scope::Public => score_public(&labels, rows(results)?)?,
     };
-    fs::create_dir_all(output_dir)?;
-    let mut output = std::io::BufWriter::new(fs::File::create(output_dir.join("summary.json"))?);
+    let mut summary_output = crate::output::Output::new(&output_dir.join("summary.json"))?;
+    let mut mismatches_output = crate::output::Output::new(&output_dir.join("mismatches.jsonl"))?;
+    let mut output = std::io::BufWriter::new(summary_output.file());
     serde_json::to_writer_pretty(&mut output, &summary)?;
     output.write_all(b"\n")?;
     output.flush()?;
-    let mut output =
-        std::io::BufWriter::new(fs::File::create(output_dir.join("mismatches.jsonl"))?);
+    drop(output);
+    let mut output = std::io::BufWriter::new(mismatches_output.file());
     for mismatch in mismatches {
         serde_json::to_writer(&mut output, &mismatch)?;
         output.write_all(b"\n")?;
     }
     output.flush()?;
+    drop(output);
+    crate::output::commit(vec![summary_output, mismatches_output])?;
     let scores = if matches!(scope, Scope::Local) {
         &summary["scores"]["all"]
     } else {
@@ -424,6 +427,24 @@ fn score_public(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_report_destination_preserves_previous_summary() {
+        let directory = tempfile::tempdir().unwrap();
+        let labels = directory.path().join("labels.jsonl");
+        let results = directory.path().join("results.jsonl");
+        let reports = directory.path().join("reports");
+        fs::create_dir_all(reports.join("mismatches.jsonl")).unwrap();
+        fs::write(&labels, "{\"name\":\"A\",\"expected\":{\"title\":\"A\"}}\n").unwrap();
+        fs::write(&results, "{\"name\":\"A\",\"cinekey\":{\"title\":\"A\"}}\n").unwrap();
+        fs::write(reports.join("summary.json"), b"previous summary\n").unwrap();
+        assert!(run(Scope::Public, &labels, &results, &reports).is_err());
+        assert_eq!(
+            fs::read(reports.join("summary.json")).unwrap(),
+            b"previous summary\n"
+        );
+        assert_eq!(fs::read_dir(&reports).unwrap().count(), 2);
+    }
 
     #[test]
     fn title_aliases_apply_to_title() {

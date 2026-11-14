@@ -247,6 +247,9 @@ jobs:
     if: needs.prepare.outputs.tag != ''
     needs: [prepare, check, cli, wasm, npm]
     runs-on: ubuntu-latest
+    concurrency:
+      group: release-publish
+      cancel-in-progress: false
     permissions:
       contents: write
       id-token: write
@@ -256,6 +259,8 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
       TAG: ${{ needs.prepare.outputs.tag }}
       COMMIT: ${{ needs.prepare.outputs.commit }}
+      # Requires Allow npm dist-tag in the package's trusted publisher settings.
+      NPM_DIST_TAG_ENABLED: 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -270,7 +275,6 @@ jobs:
         id: release
         shell: bash
         run: |
-          (cd dist && sha256sum cinekey-* > SHA256SUMS)
           flags=()
           if [[ "$VERSION" == *-* ]]; then flags+=(--prerelease); fi
           if ! gh release view "$TAG" >/dev/null 2>&1; then
@@ -329,31 +333,18 @@ jobs:
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
       - name: Publish npm package
-        shell: bash
         run: |
-          status=$(curl --location --silent --show-error --retry 3 \
-            --write-out '%{http_code}' --output "$RUNNER_TEMP/npm-version.json" \
-            "https://registry.npmjs.org/cinekey/$VERSION")
-          case "$status" in
-            200)
-              jq --exit-status --arg sha "$COMMIT" \
-                '.gitHead == $sha' "$RUNNER_TEMP/npm-version.json"
-              ;;
-            404)
-              dist_tag=latest
-              if [[ "$VERSION" == *-* ]]; then dist_tag=next; fi
-              npm publish "./dist/cinekey-$VERSION.tgz" --tag "$dist_tag"
-              ;;
-            *)
-              echo "npm registry returned HTTP $status." >&2
-              exit 1
-              ;;
-          esac
+          npm ci --prefix scripts --ignore-scripts
+          if [[ "$NPM_DIST_TAG_ENABLED" == true ]]; then npm install --global npm@12.2.2; fi
+          node scripts/npm-publish.mjs publish "$VERSION" "$COMMIT" "./dist/cinekey-$VERSION.tgz"
       - name: Upload release artifacts
-        run: gh release upload "$TAG" dist/* --clobber
+        run: node scripts/release-assets.mjs "$TAG" dist
       - name: Publish GitHub Release
         if: steps.release.outputs.draft == 'true'
         run: gh release edit "$TAG" --draft=false
+      - name: Promote npm release channel
+        if: env.NPM_DIST_TAG_ENABLED == 'true'
+        run: node scripts/npm-publish.mjs promote "$VERSION" "$COMMIT"
 
   homebrew:
     if: needs.prepare.outputs.tag != '' && !contains(needs.prepare.outputs.version, '-')

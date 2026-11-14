@@ -24,13 +24,8 @@ pub fn run(source: Source, fixtures: &Path, output: &Path) -> Result<()> {
     {
         return Err("fixture source and output must have distinct paths".into());
     }
-    if let Some(parent) = output
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-    {
-        fs::create_dir_all(parent)?;
-    }
-    let mut out = std::io::BufWriter::new(fs::File::create(output)?);
+    let mut staged = crate::output::Output::new(output)?;
+    let mut out = std::io::BufWriter::new(staged.file());
     let (count, scored) = match source {
         Source::Hunch => prepare_hunch(fixtures, &mut out)?,
         Source::Oleoo => {
@@ -43,6 +38,8 @@ pub fn run(source: Source, fixtures: &Path, output: &Path) -> Result<()> {
         }
     };
     out.flush()?;
+    drop(out);
+    crate::output::commit(vec![staged])?;
     println!("{source:?}: {count} cases; {scored} with shared expectations");
     Ok(())
 }
@@ -275,6 +272,22 @@ impl<'de, W: Write> Visitor<'de> for OleooWriter<'_, W> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn damaged_fixtures_preserve_previous_output() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("fixtures.json");
+        let output = directory.path().join("corpus.jsonl");
+        fs::write(
+            &source,
+            r#"{"A":{"title":"A","year":null,"season":null,"episodes":[],"type":"movie"},"B":"#,
+        )
+        .unwrap();
+        fs::write(&output, b"previous corpus\n").unwrap();
+        assert!(run(Source::Oleoo, &source, &output).is_err());
+        assert_eq!(fs::read(&output).unwrap(), b"previous corpus\n");
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 2);
+    }
 
     #[test]
     fn multi_key_fixture_groups_preserve_lists_and_defaults() {

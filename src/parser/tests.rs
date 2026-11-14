@@ -16,6 +16,46 @@ fn every_input_returns_one_metadata_record() {
 }
 
 #[test]
+fn bit_depth_words_in_titles_and_release_groups_keep_their_roles() {
+    for (input, title) in [
+        (
+            "8-Bit.Christmas.2021.MULTi.1080p.WEB.DD5.1.H264-FRATERNiTY.mkv",
+            "8-Bit Christmas",
+        ),
+        ("8Bit.Christmas.2021.1080p.mkv", "8Bit Christmas"),
+        ("8-Bit.Christmas.2021.1080p.10-bit.mkv", "8-Bit Christmas"),
+    ] {
+        let media = parse(input);
+        assert_eq!(media.title.as_deref(), Some(title), "{input}");
+        assert_eq!(media.year, Some(2021), "{input}");
+        assert_eq!(
+            media.video_transcoded,
+            input.contains("WEB.").then_some(false),
+            "{input}"
+        );
+        assert_eq!(
+            media.video_bit_depth,
+            input.contains("10-bit").then_some(10),
+            "{input}"
+        );
+    }
+    for depth in [8, 10, 12] {
+        let media = parse(&format!("Example.2020.1080p.{depth}-bit.mkv"));
+        assert_eq!(media.video_bit_depth, Some(depth));
+        assert_eq!(media.release_group, None);
+    }
+    assert_eq!(
+        parse("Example.2020.1080p.x264-bit.mkv")
+            .release_group
+            .as_deref(),
+        Some("bit")
+    );
+    let edition = parse("Watchmen Ultimate Cut (2009).mkv");
+    assert_eq!(edition.title.as_deref(), Some("Watchmen"));
+    assert!(edition.edition.contains(crate::Edition::Ultimate));
+}
+
+#[test]
 fn release_groups_follow_release_anchors_across_file_names() {
     for input in [
         "Movie.2024.1080p.x264-GROUP.mkv",

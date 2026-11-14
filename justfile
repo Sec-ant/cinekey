@@ -93,3 +93,8 @@ clean:
 # Describe a user-facing change and select its release level.
 change:
     knope change
+
+# Test npm packaging, Homebrew rendering, and release recovery in isolated fixtures.
+release-test:
+    npm ci --prefix scripts --ignore-scripts
+    node --test scripts/*.test.mjs

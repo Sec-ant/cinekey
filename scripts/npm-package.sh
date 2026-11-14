@@ -7,16 +7,21 @@ commit=${2:?expected the source commit}
 repo_dir=$(cd "$(dirname "$0")/.." && pwd)
 cd "$repo_dir"
 
+mkdir -p pkg dist
+staging=$(mktemp -d "$repo_dir/pkg/.npm-XXXXXXXX")
+trap 'rm -rf "$staging"' EXIT
+
 for bindings in web nodejs; do
-    mkdir -p "pkg/npm/$bindings"
+    mkdir -p "$staging/$bindings"
     for file in cinekey.js cinekey.d.ts cinekey_bg.wasm cinekey_bg.wasm.d.ts; do
-        cp "pkg/$bindings/$file" "pkg/npm/$bindings/$file"
+        cp "pkg/$bindings/$file" "$staging/$bindings/$file"
     done
 done
-printf '%s\n' '{"type":"commonjs"}' > pkg/npm/nodejs/package.json
+printf '%s\n' '{"type":"commonjs"}' > "$staging/nodejs/package.json"
 jq --arg version "$version" --arg commit "$commit" \
     '. + {version: $version, gitHead: $commit}' \
-    crates/cinekey-wasm/npm/package.json > pkg/npm/package.json
-cp README.md LICENSE pkg/npm/
-mkdir -p dist
-npm pack ./pkg/npm --ignore-scripts --pack-destination dist
+    crates/cinekey-wasm/npm/package.json > "$staging/package.json"
+cp README.md LICENSE "$staging/"
+# Keep the previous tarball until every input has been copied and packing succeeds.
+npm pack "$staging" --ignore-scripts --pack-destination "$staging"
+mv "$staging/cinekey-$version.tgz" "dist/cinekey-$version.tgz"

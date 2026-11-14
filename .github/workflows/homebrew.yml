@@ -54,7 +54,11 @@ jobs:
           fi
           gh release view "$TAG" --json isDraft,isPrerelease | jq --exit-status '.isDraft == false and .isPrerelease == false'
           gh release download "$TAG" --pattern SHA256SUMS --dir "$RUNNER_TEMP"
-          bash scripts/homebrew-formula.sh "$version" "$RUNNER_TEMP/SHA256SUMS" > homebrew-tap/Formula/cinekey.rb
+          formula=$(mktemp homebrew-tap/Formula/.cinekey-XXXXXXXX)
+          trap 'rm -f "$formula"' EXIT
+          bash scripts/homebrew-formula.sh "$version" "$RUNNER_TEMP/SHA256SUMS" > "$formula"
+          chmod 644 "$formula"
+          mv "$formula" homebrew-tap/Formula/cinekey.rb
           if git -C homebrew-tap diff --quiet -- Formula/cinekey.rb; then exit 0; fi
           git -C homebrew-tap config user.name 'github-actions[bot]'
           git -C homebrew-tap config user.email '41898282+github-actions[bot]@users.noreply.github.com'

@@ -210,6 +210,8 @@ just clean
 
 The dependency-free release benchmark parses six representative names one million times, alternating plain parsing and ancestor context. The separate Rust package at `tools/eval` prepares public fixtures, scores identification results, exports parser output, and measures corpus throughput with pinned Hunch and Oleoo versions. Saved local inputs and references stay in ignored development directories.
 
+Run `just release-test` with Node.js 24 to check npm packaging and release workflows.
+
 The Rust API follows [Microsoft's Pragmatic Rust Guidelines](https://microsoft.github.io/rust-guidelines/) through explicit safety policy, typed interfaces, documented examples, formatting, and static lint checks.
 
 ## Releasing
@@ -229,5 +231,9 @@ Merge the Release PR to publish. Actions prepares the `v<version>` tag at the me
 After all checks and builds succeed, the workflow uploads the CLI binaries, Wasm archives, npm tarball, and `SHA256SUMS` to GitHub Releases and publishes the crate and npm package through Trusted Publishing. Both registries bind `Sec-ant/cinekey` to `release.yml`. npm uses GitHub OIDC and generates provenance automatically. Prerelease npm versions use the `next` dist-tag.
 
 The release workflow also supports manual runs with an optional version tag. An empty tag builds branch artifacts; a version tag builds and publishes that release. Build artifacts remain available for seven days. All jobs use the same source commit. Failed runs can be rerun for the same tag; existing registry versions are checked against the tag's commit.
+
+Publication jobs run serially, reuse published assets, and upload missing files. npm versions use a temporary version tag until the GitHub Release is ready. The workflow then updates `latest` or `next` in version order and removes the temporary tag.
+
+Enable **Allow npm dist-tag** for `release.yml` in the package's [trusted publisher settings](https://docs.npmjs.com/trusted-publishers/). The workflow uses npm 12.2.2 and GitHub OIDC for publishing and channel updates.
 
 Stable releases update the formula in [`Sec-ant/homebrew-tap`](https://github.com/Sec-ant/homebrew-tap) from the published binaries and `SHA256SUMS`. The `HOMEBREW_TAP_DEPLOY_KEY` Actions secret grants write access to that tap. Users receive updates through `brew upgrade cinekey`.
