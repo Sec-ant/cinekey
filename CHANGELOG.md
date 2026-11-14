@@ -1,4 +1,15 @@
 # Changelog
+## 0.4.6 (2026-11-14)
+
+### Fixes
+
+- Recognize bit-depth suffixes as video metadata.
+- Preserve titles beginning with bit-depth words.
+- Preserve the previous npm archive when packaging fails.
+- Package fresh browser and Node bindings for npm.
+- Complete npm channel promotion during release retries.
+- Preserve published asset bytes when retrying releases.
+
 ## 0.4.5 (2026-10-17)
 
 ### Fixes
